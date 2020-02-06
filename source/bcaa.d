@@ -165,8 +165,10 @@ struct Bcaa(K, V, size_t tableSize = 16) {
     }
 
     void free() @nogc nothrow {
-        foreach (key; keys)
+        auto _keys = keys();
+        foreach (key; _keys)
             core.stdc.stdlib.free(lookup(key));
+        _keys.free;
     }
 }
 
@@ -190,9 +192,11 @@ unittest {
     printf("%s\n",aa["Asım Can"].ptr);
     printf("%s\n",aa["Dan"].ptr);
 
-    foreach(key; aa.keys)
+    auto _keys = aa.keys;
+    foreach(key; _keys)
         printf("%s -> %s \n", key.ptr, aa[key].ptr);
-
+    _keys.free;
+    
     aa.free;
 
     struct Guitar {
