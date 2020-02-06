@@ -15,6 +15,11 @@ Simple associative array implementation for D (-betterC) that fits my needs.
     aa["İlter"] = "Kurcala";
     aa["Ferhat"] = "Kurtulmuş";
     
+    if (auto val = "key1" in aa)
+        printf("exist!!!!\n".ptr);
+    else
+        printf("does not exist!!!!\n".ptr);
+    
     assert(aa.remove("Ferhat") == true);
     assert(aa["Ferhat"] == null);
     assert(aa.remove("Foe") == false);

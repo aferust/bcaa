@@ -77,6 +77,13 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         set(key, value);
     }
 
+    V opBinaryRight(string op)(K key){
+        static if (op == "in"){
+            return get(key);
+        } else
+        static assert(0, "Operator "~op~" not implemented");
+    }
+
     /// returning vector has to be cleaned-up with member free method of Dvector.
     Dvector!K keys() @nogc nothrow {
         Dvector!K ks;
@@ -183,6 +190,11 @@ unittest {
     aa["İlter"] = "Kurcala";
     aa["Ferhat"] = "Kurtulmuş";
     
+    if (auto val = "key1" in aa)
+        printf("exist!!!!\n".ptr);
+    else
+        printf("does not exist!!!!\n".ptr);
+
     assert(aa.remove("Ferhat") == true);
     assert(aa["Ferhat"] == null);
     assert(aa.remove("Foe") == false);
