@@ -1,0 +1,16 @@
+.dub
+docs.json
+dub.selections.json
+__dummy.html
+docs/
+/bcaa
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+bcaa-test-*
+*.exe
+*.o
+*.obj
+*.lst
