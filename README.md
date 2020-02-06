@@ -46,5 +46,5 @@ Simple associative array implementation for D (-betterC) that fits my needs.
     printf("%s \n", guitars[356].brand.ptr);
 
     guitars.free;
-}
+
 ```
