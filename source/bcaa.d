@@ -14,7 +14,7 @@ struct Bcaa(K, V, size_t tableSize = 16) {
 
     private Node*[tableSize] htable;
     
-    private uint hashCode(K key) @nogc nothrow {
+    private uint hashCode(const ref K key) @nogc nothrow {
         static if(is(K : int)){
             if(key<0)
                 return -cast(uint)(key % htable.length);
@@ -49,7 +49,7 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         htable[pos] = newNode;
     }
 
-    private Node* lookup(K key) @nogc nothrow {
+    private Node* lookup(in K key) @nogc nothrow {
         immutable pos = hashCode(key);
         Node* list = htable[pos];
         Node* temp = list;
@@ -62,14 +62,13 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         return null;
     }
 
-    V get(K key) @nogc nothrow {
-        const node = lookup(key);
-        if(node !is null)
-            return node.val;
+    V get(in K key) @nogc nothrow {
+        if(auto ret = opBinaryRight!"in"(key))
+            return *ret;
         return V.init;
     }
 
-    V opIndex(K key) @nogc nothrow {
+    V opIndex(in K key) @nogc nothrow {
         return get(key);
     }
 
@@ -77,9 +76,11 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         set(key, value);
     }
 
-    V opBinaryRight(string op)(K key){
+    V* opBinaryRight(string op)(in K key){
         static if (op == "in"){
-            return get(key);
+            if(auto node = lookup(key))
+                return &node.val;
+            return null;
         } else
         static assert(0, "Operator "~op~" not implemented");
     }
