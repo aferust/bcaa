@@ -190,9 +190,9 @@ unittest {
     aa["Dan"] = "Patlansky";
     aa["İlter"] = "Kurcala";
     aa["Ferhat"] = "Kurtulmuş";
-    
-    if (auto val = "key1" in aa)
-        printf("exist!!!!\n".ptr);
+
+    if (auto valptr = "Dan" in aa)
+        printf("%s exists!!!!\n", (*valptr).ptr );
     else
         printf("does not exist!!!!\n".ptr);
 
@@ -204,12 +204,13 @@ unittest {
     printf("%s\n",aa["Stevie"].ptr);
     printf("%s\n",aa["Asım Can"].ptr);
     printf("%s\n",aa["Dan"].ptr);
+    printf("%s\n",aa["Ferhat"].ptr);
 
-    auto _keys = aa.keys;
-    foreach(key; _keys)
+    auto keys = aa.keys;
+    foreach(key; keys)
         printf("%s -> %s \n", key.ptr, aa[key].ptr);
-    _keys.free;
     
+    keys.free;
     aa.free;
 
     struct Guitar {
@@ -225,6 +226,9 @@ unittest {
     assert(guitars[3].brand == "Gibson");
 
     printf("%s \n", guitars[356].brand.ptr);
+
+    if(auto valPtr = 3 in guitars)
+        printf("%s \n", (*valPtr).brand.ptr);
 
     guitars.free;
 }
