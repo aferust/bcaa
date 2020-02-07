@@ -76,7 +76,7 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         set(key, value);
     }
 
-    V* opBinaryRight(string op)(in K key){
+    V* opBinaryRight(string op)(in K key) @nogc nothrow {
         static if (op == "in"){
             if(auto node = lookup(key))
                 return &node.val;
