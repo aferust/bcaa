@@ -2,6 +2,7 @@
 Simple associative array implementation for D (-betterC) that fits my needs.
  * compatible with betterC.
  * supported key types: string and integral types. 
+ * Not fast enough for large data with its current state.
 
 ## Examples:
 ```d
