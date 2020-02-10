@@ -1,12 +1,24 @@
 # bcaa
 Simple associative array implementation for D (-betterC) that fits my needs.
+
+!!! Do not use it WIP !!!
+
  * compatible with betterC.
  * supported key types: string and integral types. 
- * Not fast enough for large data with its current state.
 
 ## Examples:
 ```d
     import core.stdc.stdio;
+    
+    Bcaa!(int, int) aa0;
+
+    foreach (i; 0..1000000){
+        aa0[i] = i;
+    }
+
+    printf("%d \n", aa0[1000]);
+
+    aa0.free;
 
     Bcaa!(string, string) aa;
 

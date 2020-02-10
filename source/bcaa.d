@@ -1,65 +1,163 @@
+/** Simple associative array implementation for D (-betterC)
+Copyright:
+ Copyright (c) 2020, Ferhat Kurtulmuş.
+
+ License:
+   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+
+This file includes parts of dmd/src/dmd/backend/aarray.d
+
+*/
+
 module bcaa;
 pragma(LDC_no_moduleinfo);
 
 import core.stdc.stdlib;
+import core.stdc.string;
 
 import dvector;
 
-struct Bcaa(K, V, size_t tableSize = 16) {
-    struct Node {
-        K key;
-        V val;
-        Node* next;
-    }
+immutable uint[14] primeList =
+[
+    97U,         389U,
+    1543U,       6151U,
+    24593U,      98317U,
+    393241U,     1572869U,
+    6291469U,    25165843U,
+    100663319U,  402653189U,
+    1610612741U, 4294967291U
+];
 
-    private Node*[tableSize] htable;
-    
-    private uint hashCode(const ref K key) @nogc nothrow {
+alias hash_t = size_t;
+
+struct KeyType(K){
+    alias Key = K;
+
+    static hash_t getHash(Key key) @nogc nothrow {
         static if(is(K : int)){
-            if(key<0)
-                return -cast(uint)(key % htable.length);
-            return cast(uint)(key % htable.length);
+            return cast(hash_t)key;
         } else
         static if(is(K == string)){
-            uint hashval;
-            foreach (i, char c; key)
-                hashval = c + 31 * hashval;
-            return hashval % htable.length;
-        } else {
-            static assert(false, "Unsupported key type!");
+            hash_t hash = 0;
+            foreach(ref v; key)
+                hash = hash * 11 + v;
+            return hash;
+        } else
+        static assert(false, "Unsupported key type!");
+    }
+
+    static bool equals(Key k1, Key k2){
+        static if(is(K : int)){
+            return k1 == k2;
+        } else
+        static if(is(K == string)){
+            return k1.length == k2.length &&
+                memcmp(k1.ptr, k2.ptr, k1.length) == 0;
         }
+    }
+}
+
+struct Bcaa(K, V){
+    alias TKey = KeyType!K;
+
+    struct Node {
+        Node* next;
+        hash_t hash;
+        K key;
+        V val;
+    }
+
+    size_t nodes;
+    TKey tkey;
+
+    private Dvector!(Node*) htable;
+
+    size_t length(){
+        return nodes;
+    }
+
+    private void createUpdateTable() @nogc nothrow {
+        if(htable.total == 0)
+            foreach (i; 0 .. primeList[0])
+                htable.pushBack(null);
     }
 
     void set(K key, V val) @nogc nothrow {
-        uint pos = hashCode(key);
+        createUpdateTable();
+
+        hash_t keyHash = tkey.getHash(key);
+        const pos = keyHash % htable.length;
+
         Node *list = htable[pos];
         Node *temp = list;
 
         while(temp){
-            if(temp.key == key){
+            if(tkey.equals(temp.key, key)){
                 temp.val = val;
                 return;
             }
             temp = temp.next;
         }
+
         Node *newNode = cast(Node*)malloc(Node.sizeof);
         newNode.key = key;
         newNode.val = val;
+        newNode.hash = keyHash;
         newNode.next = list;
         htable[pos] = newNode;
+
+        ++nodes;
+
+        if (nodes > htable.length * 4){
+            rehash();
+        }
     }
 
     private Node* lookup(in K key) @nogc nothrow {
-        immutable pos = hashCode(key);
+        hash_t keyHash = tkey.getHash(key);
+        const pos = keyHash % htable.length;
+
         Node* list = htable[pos];
         Node* temp = list;
         while(temp){
-            if(temp.key == key){
+            if(keyHash == temp.hash && tkey.equals(temp.key, key)){
                 return temp;
             }
             temp = temp.next;
         }
         return null;
+    }
+
+    void rehash() @nogc nothrow {
+        if (!nodes)
+            return;
+
+        size_t newHTableLength = primeList[$ - 1];
+
+        foreach (prime; primeList[0 .. $ - 1]){
+            if (nodes <= prime){
+                newHTableLength = prime;
+                break;
+            }
+        }
+
+        Dvector!(Node*) newHTable;
+        foreach(i; 0..newHTableLength)
+            newHTable.pushBack(null);
+
+        foreach (e; htable){
+            while (e){
+                auto en = e.next;
+                auto b = &newHTable[e.hash % newHTableLength];
+                e.next = *b;
+                *b = e;
+                e = en;
+            }
+        }
+
+        htable.free;
+        
+        htable = newHTable;
     }
 
     V get(in K key) @nogc nothrow {
@@ -89,7 +187,7 @@ struct Bcaa(K, V, size_t tableSize = 16) {
     Dvector!K keys() @nogc nothrow {
         Dvector!K ks;
 
-        foreach(i; 0..tableSize){
+        foreach(i; 0..htable.length){
             auto node = htable[i];
             if(node is null)
                 continue;
@@ -107,7 +205,7 @@ struct Bcaa(K, V, size_t tableSize = 16) {
     Dvector!V values() @nogc nothrow {
         Dvector!V vals;
 
-        foreach(i; 0..tableSize){
+        foreach(i; 0..htable.length){
             auto node = htable[i];
             if(node is null)
                 continue;
@@ -123,32 +221,37 @@ struct Bcaa(K, V, size_t tableSize = 16) {
     
     // uses iteration
     bool remove(K key) @nogc nothrow {
-        foreach(i; 0..tableSize){
-            Node* current, previous;
-            previous = null;
-            for (current = htable[i];
-                current != null;
-                previous = current,
-                current = current.next) {
+        if (!nodes)
+            return false;
+        hash_t keyHash = tkey.getHash(key);
+        const pos = keyHash % htable.length;
 
-                if (current.key == key) {
-                    if (previous == null) {
-                        htable[i] = current.next;
-                    } else {
-                        previous.next = current.next;
-                    }
-                    core.stdc.stdlib.free(current);
-                    current = null;
-                    return true;
+        Node* current, previous;
+        previous = null;
+        for (current = htable[pos];
+            current != null;
+            previous = current,
+            current = current.next) {
+
+            if (current.key == key) {
+                if (previous == null) {
+                    htable[pos] = current.next;
+                } else {
+                    previous.next = current.next;
                 }
+                core.stdc.stdlib.free(current);
+                current = null;
+                return true;
             }
         }
+    
         return false;
     }
 
     // uses recursion
     bool remove2(K key) @nogc nothrow {
-
+        if (!nodes)
+            return false;
         Node *recursiveDelete(Node *current, K key, bool* removed) @nogc nothrow {
             if (current == null)
                 return null;
@@ -164,11 +267,12 @@ struct Bcaa(K, V, size_t tableSize = 16) {
 
         bool removed = false;
 
-        foreach(i; 0..tableSize){
-            htable[i] = recursiveDelete(htable[i], key, &removed);
-            if(removed)
-                return true;
-        }
+        hash_t keyHash = tkey.getHash(key);
+        const pos = keyHash % htable.length;
+        
+        htable[pos] = recursiveDelete(htable[pos], key, &removed);
+        if(removed)
+            return true;
         return false;
     }
 
@@ -177,11 +281,23 @@ struct Bcaa(K, V, size_t tableSize = 16) {
         foreach (key; _keys)
             core.stdc.stdlib.free(lookup(key));
         _keys.free;
+        if(htable.length != 0)
+            htable.free;
     }
 }
 
 unittest {
     import core.stdc.stdio;
+    
+    Bcaa!(int, int) aa0;
+
+    foreach (i; 0..1000000){
+        aa0[i] = i;
+    }
+
+    printf("%d \n", aa0[1000]);
+
+    aa0.free;
 
     Bcaa!(string, string) aa;
 
