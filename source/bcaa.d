@@ -17,42 +17,44 @@ import core.stdc.string;
 
 import dvector;
 
-immutable uint[14] primeList =
-[
-    97U,         389U,
-    1543U,       6151U,
-    24593U,      98317U,
-    393241U,     1572869U,
-    6291469U,    25165843U,
-    100663319U,  402653189U,
-    1610612741U, 4294967291U
-];
+private {
+    immutable uint[14] primeList =
+    [
+        97U,         389U,
+        1543U,       6151U,
+        24593U,      98317U,
+        393241U,     1572869U,
+        6291469U,    25165843U,
+        100663319U,  402653189U,
+        1610612741U, 4294967291U
+    ];
 
-alias hash_t = size_t;
+    alias hash_t = size_t;
 
-struct KeyType(K){
-    alias Key = K;
+    struct KeyType(K){
+        alias Key = K;
 
-    static hash_t getHash(Key key) @nogc nothrow {
-        static if(is(K : int)){
-            return cast(hash_t)key;
-        } else
-        static if(is(K == string)){
-            hash_t hash = 0;
-            foreach(ref v; key)
-                hash = hash * 11 + v;
-            return hash;
-        } else
-        static assert(false, "Unsupported key type!");
-    }
+        static hash_t getHash(Key key) @nogc nothrow {
+            static if(is(K : int)){
+                return cast(hash_t)key;
+            } else
+            static if(is(K == string)){
+                hash_t hash = 0;
+                foreach(ref v; key)
+                    hash = hash * 11 + v;
+                return hash;
+            } else
+            static assert(false, "Unsupported key type!");
+        }
 
-    static bool equals(Key k1, Key k2){
-        static if(is(K : int)){
-            return k1 == k2;
-        } else
-        static if(is(K == string)){
-            return k1.length == k2.length &&
-                memcmp(k1.ptr, k2.ptr, k1.length) == 0;
+        static bool equals(Key k1, Key k2){
+            static if(is(K : int)){
+                return k1 == k2;
+            } else
+            static if(is(K == string)){
+                return k1.length == k2.length &&
+                    memcmp(k1.ptr, k2.ptr, k1.length) == 0;
+            }
         }
     }
 }
@@ -72,7 +74,7 @@ struct Bcaa(K, V){
 
     private Dvector!(Node*) htable;
 
-    size_t length(){
+    size_t length() @nogc nothrow {
         return nodes;
     }
 

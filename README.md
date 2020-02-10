@@ -18,7 +18,7 @@ Simple associative array implementation for D (-betterC) that fits my needs.
 
     printf("%d \n", aa0[1000]);
 
-    aa0.free;
+    aa0.free; // free is costly. always try to use it at the end of the program"
 
     Bcaa!(string, string) aa;
 
