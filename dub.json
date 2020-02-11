@@ -4,12 +4,12 @@
 	],
 	"copyright": "Copyright © 2020, Ferhat Kurtulmuş",
 	"dependencies": {
-		"dvector": "~>0.0.1"
+		"dvector": "~>0.0.3"
 	},
 	"description": "Simple associative array implementation for D (-betterC) that fits my needs.",
 	"license": "boost",
     "name": "bcaa",
-    "version": "0.0.2",
+    "version": "0.0.1",
     "dflags": ["-betterC"],
     "importPaths": ["source"],
     "sourcePaths": ["source"],
