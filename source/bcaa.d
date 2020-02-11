@@ -34,7 +34,7 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(Key key) @nogc nothrow {
+        static hash_t getHash(const ref Key key) @nogc nothrow {
             static if(is(K : int)){
                 return cast(hash_t)key;
             } else
@@ -47,14 +47,15 @@ private {
             static assert(false, "Unsupported key type!");
         }
 
-        static bool equals(Key k1, Key k2){
+        static bool equals(const ref Key k1, const ref Key k2) @nogc nothrow {
             static if(is(K : int)){
                 return k1 == k2;
             } else
             static if(is(K == string)){
                 return k1.length == k2.length &&
                     memcmp(k1.ptr, k2.ptr, k1.length) == 0;
-            }
+            } else
+            static assert(false, "Unsupported key type!");
         }
     }
 }
@@ -78,14 +79,14 @@ struct Bcaa(K, V){
         return nodes;
     }
 
-    private void createUpdateTable() @nogc nothrow {
+    private void initTableIfNeeded() @nogc nothrow {
         if(htable.total == 0)
             foreach (i; 0 .. primeList[0])
                 htable.pushBack(null);
     }
 
-    void set(K key, V val) @nogc nothrow {
-        createUpdateTable();
+    void set(const ref K key, const ref V val) @nogc nothrow {
+        initTableIfNeeded();
 
         hash_t keyHash = tkey.getHash(key);
         const pos = keyHash % htable.length;
@@ -115,7 +116,7 @@ struct Bcaa(K, V){
         }
     }
 
-    private Node* lookup(in K key) @nogc nothrow {
+    private Node* lookup(const ref K key) @nogc nothrow {
         hash_t keyHash = tkey.getHash(key);
         const pos = keyHash % htable.length;
 
@@ -162,21 +163,21 @@ struct Bcaa(K, V){
         htable = newHTable;
     }
 
-    V get(in K key) @nogc nothrow {
+    V get(scope const K key) @nogc nothrow {
         if(auto ret = opBinaryRight!"in"(key))
             return *ret;
         return V.init;
     }
 
-    V opIndex(in K key) @nogc nothrow {
+    V opIndex(scope const K key) @nogc nothrow {
         return get(key);
     }
 
-    void opIndexAssign(V value, K key) @nogc nothrow {
+    void opIndexAssign(scope const V value, scope const K key) @nogc nothrow {
         set(key, value);
     }
 
-    V* opBinaryRight(string op)(in K key) @nogc nothrow {
+    V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
         static if (op == "in"){
             if(auto node = lookup(key))
                 return &node.val;
@@ -222,10 +223,10 @@ struct Bcaa(K, V){
     }
     
     // uses iteration
-    bool remove(K key) @nogc nothrow {
+    bool remove(scope const K key) @nogc nothrow {
         if (!nodes)
             return false;
-        hash_t keyHash = tkey.getHash(key);
+        const keyHash = tkey.getHash(key);
         const pos = keyHash % htable.length;
 
         Node* current, previous;
@@ -234,8 +235,8 @@ struct Bcaa(K, V){
             current != null;
             previous = current,
             current = current.next) {
-
-            if (current.key == key) {
+            
+            if (keyHash == current.hash && tkey.equals(current.key, key)){
                 if (previous == null) {
                     htable[pos] = current.next;
                 } else {
@@ -252,13 +253,17 @@ struct Bcaa(K, V){
     }
 
     // uses recursion
-    bool remove2(K key) @nogc nothrow {
+    bool remove2(scope const K key) @nogc nothrow {
         if (!nodes)
             return false;
+        
+        const keyHash = tkey.getHash(key);
+        const pos = keyHash % htable.length;
+
         Node *recursiveDelete(Node *current, K key, bool* removed) @nogc nothrow {
             if (current == null)
                 return null;
-            if (current.key == key) {
+            if (keyHash == current.hash && tkey.equals(current.key, key)){
                 Node *tmpNext = current.next;
                 core.stdc.stdlib.free(current);
                 *removed = true;
@@ -269,9 +274,6 @@ struct Bcaa(K, V){
         }
 
         bool removed = false;
-
-        hash_t keyHash = tkey.getHash(key);
-        const pos = keyHash % htable.length;
         
         htable[pos] = recursiveDelete(htable[pos], key, &removed);
         if(removed){
