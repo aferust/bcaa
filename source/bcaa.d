@@ -10,7 +10,10 @@ This file includes parts of dmd/src/dmd/backend/aarray.d
 */
 
 module bcaa;
-pragma(LDC_no_moduleinfo);
+
+version(LDC){
+    pragma(LDC_no_moduleinfo);
+}
 
 import core.stdc.stdlib;
 import core.stdc.string;
@@ -34,7 +37,7 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(ref const Key key) @nogc nothrow {
+        static hash_t getHash(ref const Key key) @nogc @safe nothrow pure {
             static if(is(K : int)){
                 return cast(hash_t)key;
             } else
@@ -47,7 +50,7 @@ private {
             static assert(false, "Unsupported key type!");
         }
 
-        static bool equals(ref const Key k1, ref const Key k2) @nogc nothrow {
+        static bool equals(ref const Key k1, ref const Key k2) @nogc nothrow pure {
             static if(is(K : int)){
                 return k1 == k2;
             } else
@@ -148,7 +151,7 @@ struct Bcaa(K, V){
         foreach(i; 0..newHTableLength)
             newHTable.pushBack(null);
 
-        foreach (e; htable){
+        foreach (ref e; htable){
             while (e){
                 auto en = e.next;
                 auto b = &newHTable[e.hash % newHTableLength];
@@ -159,7 +162,6 @@ struct Bcaa(K, V){
         }
 
         htable.free;
-        
         htable = newHTable;
     }
 
@@ -284,17 +286,24 @@ struct Bcaa(K, V){
         return false;
     }
 
-    void free() @nogc nothrow {
-        foreach (e; htable){
+    void clear() @nogc nothrow {
+        foreach (ref e; htable){
             while (e){
                 auto en = e;
                 e = e.next;
                 core.stdc.stdlib.free(en);
+                en = null;
             }
         }
         nodes = 0;
+    }
+
+    void free() @nogc nothrow {
+        clear();
         htable.free;
     }
+
+    // TODO: .byKey(), .byValue(), .byKeyValue()
 }
 
 unittest {
