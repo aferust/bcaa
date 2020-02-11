@@ -243,6 +243,7 @@ struct Bcaa(K, V){
                 }
                 core.stdc.stdlib.free(current);
                 current = null;
+                --nodes;
                 return true;
             }
         }
@@ -273,18 +274,24 @@ struct Bcaa(K, V){
         const pos = keyHash % htable.length;
         
         htable[pos] = recursiveDelete(htable[pos], key, &removed);
-        if(removed)
+        if(removed){
+            --nodes;
             return true;
+        }
+            
         return false;
     }
 
     void free() @nogc nothrow {
-        auto _keys = keys();
-        foreach (key; _keys)
-            core.stdc.stdlib.free(lookup(key));
-        _keys.free;
-        if(htable.length != 0)
-            htable.free;
+        foreach (e; htable){
+            while (e){
+                auto en = e;
+                e = e.next;
+                core.stdc.stdlib.free(en);
+            }
+        }
+        nodes = 0;
+        htable.free;
     }
 }
 
