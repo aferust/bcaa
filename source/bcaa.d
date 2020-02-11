@@ -34,7 +34,7 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(const ref Key key) @nogc nothrow {
+        static hash_t getHash(ref const Key key) @nogc nothrow {
             static if(is(K : int)){
                 return cast(hash_t)key;
             } else
@@ -47,7 +47,7 @@ private {
             static assert(false, "Unsupported key type!");
         }
 
-        static bool equals(const ref Key k1, const ref Key k2) @nogc nothrow {
+        static bool equals(ref const Key k1, ref const Key k2) @nogc nothrow {
             static if(is(K : int)){
                 return k1 == k2;
             } else
@@ -85,7 +85,7 @@ struct Bcaa(K, V){
                 htable.pushBack(null);
     }
 
-    void set(const ref K key, const ref V val) @nogc nothrow {
+    void set(ref const K key, ref const V val) @nogc nothrow {
         initTableIfNeeded();
 
         hash_t keyHash = tkey.getHash(key);
@@ -116,7 +116,7 @@ struct Bcaa(K, V){
         }
     }
 
-    private Node* lookup(const ref K key) @nogc nothrow {
+    private Node* lookup(ref const K key) @nogc nothrow {
         hash_t keyHash = tkey.getHash(key);
         const pos = keyHash % htable.length;
 
@@ -163,7 +163,7 @@ struct Bcaa(K, V){
         htable = newHTable;
     }
 
-    V get(scope const K key) @nogc nothrow {
+    V get(ref const K key) @nogc nothrow {
         if(auto ret = opBinaryRight!"in"(key))
             return *ret;
         return V.init;
