@@ -4,7 +4,7 @@
 	],
 	"copyright": "Copyright © 2020, Ferhat Kurtulmuş",
 	"dependencies": {
-		"dvector": "~>0.0.3"
+		"dvector": "~>0.0.1"
 	},
 	"description": "Simple associative array implementation for D (-betterC) that fits my needs.",
 	"license": "boost",
