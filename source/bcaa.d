@@ -292,7 +292,6 @@ struct Bcaa(K, V){
                 auto en = e;
                 e = e.next;
                 core.stdc.stdlib.free(en);
-                en = null;
             }
         }
         nodes = 0;
