@@ -1,5 +1,5 @@
 # bcaa
-Simple associative array implementation for D (-betterC) that fits my needs.
+Simple associative array implementation for D (-betterC).
 
 !!! Do not use it WIP !!!
 

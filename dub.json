@@ -6,7 +6,7 @@
 	"dependencies": {
 		"dvector": "~>0.0.3"
 	},
-	"description": "Simple associative array implementation for D (-betterC) that fits my needs.",
+	"description": "Simple associative array implementation for D (-betterC)",
 	"license": "boost",
     "name": "bcaa",
     "version": "0.0.2",
