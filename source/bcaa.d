@@ -5,7 +5,7 @@ Copyright:
  License:
    $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
 
-This file includes parts of dmd/src/dmd/backend/aarray.d
+This file includes parts of dmd/src/dmd/backend/aarray.d and dmd/root/aav.c
 
 */
 
@@ -37,9 +37,10 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(ref const Key key) @nogc @safe nothrow pure {
+        static hash_t getHash(Key key) @nogc @safe nothrow pure {
             static if(is(K : int)){
-                return cast(hash_t)key;
+                key ^= (key >> 20) ^ (key >> 12);
+                return key ^ (key >> 7) ^ (key >> 4);
             } else
             static if(is(K == string)){
                 hash_t hash = 0;
@@ -63,7 +64,7 @@ private {
     }
 }
 
-struct Bcaa(K, V){
+struct Bcaa(K, V, bool rehashMul4 = true){
     alias TKey = KeyType!K;
 
     struct Node {
@@ -83,16 +84,22 @@ struct Bcaa(K, V){
     }
 
     private void initTableIfNeeded() @nogc nothrow {
-        if(htable.total == 0)
-            foreach (i; 0 .. primeList[0])
-                htable.pushBack(null);
+        if(htable.total == 0){
+            static if (rehashMul4 == true){
+                foreach (i; 0 .. 4)
+                    htable.pushBack(null);
+            } else {
+                foreach (i; 0 .. primeList[0])
+                    htable.pushBack(null);
+            }
+        }
     }
 
     void set(ref const K key, ref const V val) @nogc nothrow {
         initTableIfNeeded();
 
         hash_t keyHash = tkey.getHash(key);
-        const pos = keyHash % htable.length;
+        const size_t pos = keyHash % htable.length;
 
         Node *list = htable[pos];
         Node *temp = list;
@@ -114,14 +121,20 @@ struct Bcaa(K, V){
 
         ++nodes;
 
-        if (nodes > htable.length * 4){
-            rehash();
+        static if (rehashMul4 == true){
+            if (nodes > htable.length * 2){
+                rehash();
+            }
+        } else {
+            if (nodes > htable.length * 4){
+                rehash();
+            }
         }
     }
 
     private Node* lookup(ref const K key) @nogc nothrow {
         hash_t keyHash = tkey.getHash(key);
-        const pos = keyHash % htable.length;
+        const size_t pos = keyHash % htable.length;
 
         Node* list = htable[pos];
         Node* temp = list;
@@ -138,12 +151,19 @@ struct Bcaa(K, V){
         if (!nodes)
             return;
 
-        size_t newHTableLength = primeList[$ - 1];
-
-        foreach (prime; primeList[0 .. $ - 1]){
-            if (nodes <= prime){
-                newHTableLength = prime;
-                break;
+        static if (rehashMul4 == true){
+            size_t newHTableLength = htable.length;
+            if (newHTableLength == 4)
+                newHTableLength = 32;
+            else
+                newHTableLength *= 4;
+        } else {
+            size_t newHTableLength = primeList[$ - 1];
+            foreach (prime; primeList[0 .. $ - 1]){
+                if (nodes <= prime){
+                    newHTableLength = prime;
+                    break;
+                }
             }
         }
 
@@ -229,7 +249,7 @@ struct Bcaa(K, V){
         if (!nodes)
             return false;
         const keyHash = tkey.getHash(key);
-        const pos = keyHash % htable.length;
+        const size_t pos = keyHash % htable.length;
 
         Node* current, previous;
         previous = null;
@@ -260,7 +280,7 @@ struct Bcaa(K, V){
             return false;
         
         const keyHash = tkey.getHash(key);
-        const pos = keyHash % htable.length;
+        const size_t pos = keyHash % htable.length;
 
         Node *recursiveDelete(Node *current, K key, bool* removed) @nogc nothrow {
             if (current == null)
