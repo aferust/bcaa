@@ -1,8 +1,6 @@
 # bcaa
 Simple associative array implementation for D (-betterC).
 
-!!! Do not use it WIP !!!
-
  * compatible with betterC.
  * supported key types: string and integral types. 
 
