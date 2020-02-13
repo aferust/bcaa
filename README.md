@@ -1,53 +1,62 @@
 # bcaa
-!!! WIP - do not use it !!!
 Simple associative array implementation for D (-betterC).
-
  * compatible with betterC.
- * supported key types: string and integral types. 
+ * similar to built-in AA (some codes were borrowed from druntime and DMD).
+ * memory management using malloc and free.
+ * supported key types: string and integral types.
 
 ## Examples:
 ```d
     import core.stdc.stdio;
-    
+    import core.stdc.time;
+
+    clock_t begin = clock();
+
     Bcaa!(int, int) aa0;
 
     foreach (i; 0..1000000){
         aa0[i] = i;
     }
 
+    foreach (i; 2000..1000000){
+        aa0.remove(i);
+    }
+
     printf("%d \n", aa0[1000]);
+    aa0.free;
 
-    aa0.free; // free is costly. always try to use it at the end of the program"
+    clock_t end = clock(); printf("Elapsed time: %f \n", cast(double)(end - begin) / CLOCKS_PER_SEC);
 
-    Bcaa!(string, string) aa;
+    Bcaa!(string, string) aa1;
 
-    aa["Stevie"] = "Ray Vaughan";
-    aa["Asım Can"] = "Gündüz";
-    aa["Dan"] = "Patlansky";
-    aa["İlter"] = "Kurcala";
-    aa["Ferhat"] = "Kurtulmuş";
+    aa1["Stevie"] = "Ray Vaughan";
+    aa1["Asım Can"] = "Gündüz";
+    aa1["Dan"] = "Patlansky";
+    aa1["İlter"] = "Kurcala";
+    aa1["Ferhat"] = "Kurtulmuş";
 
-    if (auto valptr = "Dan" in aa)
+    if (auto valptr = "Dan" in aa1)
         printf("%s exists!!!!\n", (*valptr).ptr );
     else
         printf("does not exist!!!!\n".ptr);
 
-    assert(aa.remove("Ferhat") == true);
-    assert(aa["Ferhat"] == null);
-    assert(aa.remove("Foe") == false);
-    assert(aa["İlter"] =="Kurcala");
+    assert(aa1.remove("Ferhat") == true);
+    assert(aa1["Ferhat"] == null);
+    assert(aa1.remove("Foe") == false);
+    assert(aa1["İlter"] =="Kurcala");
 
-    printf("%s\n",aa["Stevie"].ptr);
-    printf("%s\n",aa["Asım Can"].ptr);
-    printf("%s\n",aa["Dan"].ptr);
-    printf("%s\n",aa["Ferhat"].ptr);
+    aa1.rehash();
 
-    auto keys = aa.keys;
+    printf("%s\n",aa1["Stevie"].ptr);
+    printf("%s\n",aa1["Asım Can"].ptr);
+    printf("%s\n",aa1["Dan"].ptr);
+    printf("%s\n",aa1["Ferhat"].ptr);
+
+    auto keys = aa1.keys;
     foreach(key; keys)
-        printf("%s -> %s \n", key.ptr, aa[key].ptr);
-    
-    keys.free;
-    aa.free;
+        printf("%s -> %s \n", key.ptr, aa1[key].ptr);
+    core.stdc.stdlib.free(keys.ptr);
+    aa1.free;
 
     struct Guitar {
         string brand;

@@ -3,9 +3,6 @@
 		"Ferhat Kurtulmuş"
 	],
 	"copyright": "Copyright © 2020, Ferhat Kurtulmuş",
-	"dependencies": {
-		"dvector": "~>0.0.3"
-	},
 	"description": "Simple associative array implementation for D (-betterC)",
 	"license": "boost",
     "name": "bcaa",

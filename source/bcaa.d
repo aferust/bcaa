@@ -5,8 +5,10 @@ Copyright:
  License:
    $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
 
-This file includes parts of dmd/src/dmd/backend/aarray.d and dmd/root/aav.c
-
+This file includes parts of
+    druntime/blob/master/src/rt/aaA.d
+    dmd/src/dmd/backend/aarray.d
+    dmd/root/aav.c
 */
 
 module bcaa;
@@ -18,20 +20,23 @@ version(LDC){
 import core.stdc.stdlib;
 import core.stdc.string;
 
-import dvector;
+// grow threshold
+private enum GROW_NUM = 4;
+private enum GROW_DEN = 5;
+// shrink threshold
+private enum SHRINK_NUM = 1;
+private enum SHRINK_DEN = 8;
+// grow factor
+private enum GROW_FAC = 4;
+
+private enum INIT_NUM = (GROW_DEN * SHRINK_NUM + GROW_NUM * SHRINK_DEN) / 2;
+private enum INIT_DEN = SHRINK_DEN * GROW_DEN;
+
+private enum INIT_NUM_BUCKETS = 8;
+
+private enum SHRINK_THR = 10 /* % */;
 
 private {
-    immutable uint[14] primeList =
-    [
-        97U,         389U,
-        1543U,       6151U,
-        24593U,      98317U,
-        393241U,     1572869U,
-        6291469U,    25165843U,
-        100663319U,  402653189U,
-        1610612741U, 4294967291U
-    ];
-
     alias hash_t = size_t;
 
     struct KeyType(K){
@@ -64,7 +69,7 @@ private {
     }
 }
 
-struct Bcaa(K, V, bool rehashMul4 = true){
+struct Bcaa(K, V){
     alias TKey = KeyType!K;
 
     struct Node {
@@ -77,22 +82,26 @@ struct Bcaa(K, V, bool rehashMul4 = true){
     size_t nodes;
     TKey tkey;
 
-    private Dvector!(Node*) htable;
+    private Node*[] htable;
 
     size_t length() @nogc nothrow {
         return nodes;
     }
 
+    bool empty() const pure nothrow @nogc {
+        return htable is null || !htable.length;
+    }
+
+    private Node*[] allocHtable(size_t sz) @nogc nothrow {
+        auto hptr = cast(Node**)malloc(sz * (Node*).sizeof);
+        Node*[] _htable = hptr[0..sz];
+        _htable[] = null;
+        return _htable;
+    }
+
     private void initTableIfNeeded() @nogc nothrow {
-        if(htable.total == 0){
-            static if (rehashMul4 == true){
-                foreach (i; 0 .. 4)
-                    htable.pushBack(null);
-            } else {
-                foreach (i; 0 .. primeList[0])
-                    htable.pushBack(null);
-            }
-        }
+        if(htable is null)
+            htable = allocHtable(INIT_NUM_BUCKETS);
     }
 
     void set(ref const K key, ref const V val) @nogc nothrow {
@@ -117,19 +126,13 @@ struct Bcaa(K, V, bool rehashMul4 = true){
         newNode.val = val;
         newNode.hash = keyHash;
         newNode.next = list;
+
+        if ((nodes + 1) * GROW_DEN > htable.length * GROW_NUM)
+            grow();
+        
         htable[pos] = newNode;
 
         ++nodes;
-
-        static if (rehashMul4 == true){
-            if (nodes > htable.length * 2){
-                rehash();
-            }
-        } else {
-            if (nodes > htable.length * 4){
-                rehash();
-            }
-        }
     }
 
     private Node* lookup(ref const K key) @nogc nothrow {
@@ -147,42 +150,77 @@ struct Bcaa(K, V, bool rehashMul4 = true){
         return null;
     }
 
-    void rehash() @nogc nothrow {
-        if (!nodes)
+    void resize(size_t sz) @nogc nothrow {
+        if(sz == htable.length)
             return;
-
-        static if (rehashMul4 == true){
-            size_t newHTableLength = htable.length;
-            if (newHTableLength == 4)
-                newHTableLength = 32;
-            else
-                newHTableLength *= 4;
-        } else {
-            size_t newHTableLength = primeList[$ - 1];
-            foreach (prime; primeList[0 .. $ - 1]){
-                if (nodes <= prime){
-                    newHTableLength = prime;
-                    break;
-                }
-            }
-        }
-
-        Dvector!(Node*) newHTable;
-        foreach(i; 0..newHTableLength)
-            newHTable.pushBack(null);
+        Node*[] newHTable = allocHtable(sz);
 
         foreach (ref e; htable){
             while (e){
                 auto en = e.next;
-                auto b = &newHTable[e.hash % newHTableLength];
+                auto b = &newHTable[e.hash % sz];
                 e.next = *b;
                 *b = e;
                 e = en;
             }
         }
 
-        htable.free;
+        core.stdc.stdlib.free(htable.ptr);
         htable = newHTable;
+    }
+
+    void rehash() @nogc nothrow {
+        if (!empty)
+            return;
+        resize(nextpow2(INIT_DEN * length / INIT_NUM));
+    }
+
+    void grow() @nogc nothrow {
+        if (nodes * SHRINK_DEN > GROW_FAC * htable.length * SHRINK_NUM){
+            resize(GROW_FAC * htable.length);
+            //import core.stdc.stdio;
+            //printf("grow\n");
+        }
+            
+    }
+
+    void shrink() @nogc nothrow {
+        const ulong load = nodes * 100 / htable.length;
+        if (htable.length > INIT_NUM_BUCKETS && load < SHRINK_THR){
+            resize(htable.length / GROW_FAC);
+            //import core.stdc.stdio;
+            //printf("shrink\n");
+        }   
+    }
+
+    bool remove(scope const K key) @nogc nothrow {
+        if (!nodes)
+            return false;
+        const keyHash = tkey.getHash(key);
+        const size_t pos = keyHash % htable.length;
+
+        Node* current, previous;
+        previous = null;
+        for (current = htable[pos];
+            current != null;
+            previous = current,
+            current = current.next) {
+            
+            if (keyHash == current.hash && tkey.equals(current.key, key)){
+                if (previous == null) {
+                    htable[pos] = current.next;
+                } else {
+                    previous.next = current.next;
+                }
+                core.stdc.stdlib.free(current);
+                current = null;
+                --nodes;
+                shrink();
+                return true;
+            }
+        }
+    
+        return false;
     }
 
     V get(ref const K key) @nogc nothrow {
@@ -208,17 +246,17 @@ struct Bcaa(K, V, bool rehashMul4 = true){
         static assert(0, "Operator "~op~" not implemented");
     }
 
-    /// returning vector has to be cleaned-up with member free method of Dvector.
-    Dvector!K keys() @nogc nothrow {
-        Dvector!K ks;
-
+    /// returning slice must be deallocated like free(keys.ptr);
+    K[] keys() @nogc nothrow {
+        K[] ks = (cast(K*)malloc(nodes * K.sizeof))[0..nodes];
+        size_t j;
         foreach(i; 0..htable.length){
             auto node = htable[i];
             if(node is null)
                 continue;
             Node* tmp = node;
             while(tmp){
-                ks.pushBack(tmp.key);
+                ks[j++] = tmp.key;
                 tmp = tmp.next;
             }
         }
@@ -226,84 +264,22 @@ struct Bcaa(K, V, bool rehashMul4 = true){
         return ks;
     }
 
-    /// returning vector has to be cleaned-up with member free method of Dvector.
-    Dvector!V values() @nogc nothrow {
-        Dvector!V vals;
-
+    /// returning slice must be deallocated like free(values.ptr);
+    V[] values() @nogc nothrow {
+        V[] vals = (cast(V*)malloc(nodes * V.sizeof))[0..nodes];
+        size_t j;
         foreach(i; 0..htable.length){
             auto node = htable[i];
             if(node is null)
                 continue;
             Node* tmp = node;
             while(tmp){
-                vals.pushBack(tmp.val);
+                vals[j++] = tmp.val;
                 tmp = tmp.next;
             }
         }
 
         return vals;
-    }
-    
-    // uses iteration
-    bool remove(scope const K key) @nogc nothrow {
-        if (!nodes)
-            return false;
-        const keyHash = tkey.getHash(key);
-        const size_t pos = keyHash % htable.length;
-
-        Node* current, previous;
-        previous = null;
-        for (current = htable[pos];
-            current != null;
-            previous = current,
-            current = current.next) {
-            
-            if (keyHash == current.hash && tkey.equals(current.key, key)){
-                if (previous == null) {
-                    htable[pos] = current.next;
-                } else {
-                    previous.next = current.next;
-                }
-                core.stdc.stdlib.free(current);
-                current = null;
-                --nodes;
-                return true;
-            }
-        }
-    
-        return false;
-    }
-
-    // uses recursion
-    bool remove2(scope const K key) @nogc nothrow {
-        if (!nodes)
-            return false;
-        
-        const keyHash = tkey.getHash(key);
-        const size_t pos = keyHash % htable.length;
-
-        Node *recursiveDelete(Node *current, K key, bool* removed) @nogc nothrow {
-            if (current == null)
-                return null;
-            if (keyHash == current.hash && tkey.equals(current.key, key)){
-                Node *tmpNext = current.next;
-                core.stdc.stdlib.free(current);
-                *removed = true;
-                return tmpNext;
-            }
-            current.next = recursiveDelete(current.next, key, removed);
-            return current;
-        }
-
-        bool removed = false;
-        
-        htable[pos] = recursiveDelete(htable[pos], key, &removed);
-        if(removed){
-            --nodes;
-            return true;
-        }
-            
-        return false;
     }
 
     void clear() @nogc nothrow {
@@ -319,54 +295,74 @@ struct Bcaa(K, V, bool rehashMul4 = true){
 
     void free() @nogc nothrow {
         clear();
-        htable.free;
+        core.stdc.stdlib.free(htable.ptr);
+        htable = null;
     }
 
     // TODO: .byKey(), .byValue(), .byKeyValue()
 }
 
+private size_t nextpow2(const size_t n) pure nothrow @nogc {
+    import core.bitop : bsr;
+
+    if (!n)
+        return 1;
+
+    const isPowerOf2 = !((n - 1) & n);
+    return 1 << (bsr(n) + !isPowerOf2);
+}
+
 unittest {
     import core.stdc.stdio;
-    
+    import core.stdc.time;
+
+    clock_t begin = clock();
+
     Bcaa!(int, int) aa0;
 
     foreach (i; 0..1000000){
         aa0[i] = i;
     }
 
-    printf("%d \n", aa0[1000]);
+    foreach (i; 2000..1000000){
+        aa0.remove(i);
+    }
 
+    printf("%d \n", aa0[1000]);
     aa0.free;
 
-    Bcaa!(string, string) aa;
+    clock_t end = clock(); printf("Elapsed time: %f \n", cast(double)(end - begin) / CLOCKS_PER_SEC);
 
-    aa["Stevie"] = "Ray Vaughan";
-    aa["Asım Can"] = "Gündüz";
-    aa["Dan"] = "Patlansky";
-    aa["İlter"] = "Kurcala";
-    aa["Ferhat"] = "Kurtulmuş";
+    Bcaa!(string, string) aa1;
 
-    if (auto valptr = "Dan" in aa)
+    aa1["Stevie"] = "Ray Vaughan";
+    aa1["Asım Can"] = "Gündüz";
+    aa1["Dan"] = "Patlansky";
+    aa1["İlter"] = "Kurcala";
+    aa1["Ferhat"] = "Kurtulmuş";
+
+    if (auto valptr = "Dan" in aa1)
         printf("%s exists!!!!\n", (*valptr).ptr );
     else
         printf("does not exist!!!!\n".ptr);
 
-    assert(aa.remove("Ferhat") == true);
-    assert(aa["Ferhat"] == null);
-    assert(aa.remove("Foe") == false);
-    assert(aa["İlter"] =="Kurcala");
+    assert(aa1.remove("Ferhat") == true);
+    assert(aa1["Ferhat"] == null);
+    assert(aa1.remove("Foe") == false);
+    assert(aa1["İlter"] =="Kurcala");
 
-    printf("%s\n",aa["Stevie"].ptr);
-    printf("%s\n",aa["Asım Can"].ptr);
-    printf("%s\n",aa["Dan"].ptr);
-    printf("%s\n",aa["Ferhat"].ptr);
+    aa1.rehash();
 
-    auto keys = aa.keys;
+    printf("%s\n",aa1["Stevie"].ptr);
+    printf("%s\n",aa1["Asım Can"].ptr);
+    printf("%s\n",aa1["Dan"].ptr);
+    printf("%s\n",aa1["Ferhat"].ptr);
+
+    auto keys = aa1.keys;
     foreach(key; keys)
-        printf("%s -> %s \n", key.ptr, aa[key].ptr);
-    
-    keys.free;
-    aa.free;
+        printf("%s -> %s \n", key.ptr, aa1[key].ptr);
+    core.stdc.stdlib.free(keys.ptr);
+    aa1.free;
 
     struct Guitar {
         string brand;
