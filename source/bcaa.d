@@ -1,14 +1,14 @@
 /** Simple associative array implementation for D (-betterC)
+
+The author of the original implementation: Martin Nowak
+
 Copyright:
  Copyright (c) 2020, Ferhat Kurtulmuş.
 
  License:
    $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
 
-This file includes parts of
-    druntime/blob/master/src/rt/aaA.d
-    dmd/src/dmd/backend/aarray.d
-    dmd/root/aav.c
+Simplified betterC port of druntime/blob/master/src/rt/aaA.d
 */
 
 module bcaa;
@@ -28,13 +28,18 @@ private enum SHRINK_NUM = 1;
 private enum SHRINK_DEN = 8;
 // grow factor
 private enum GROW_FAC = 4;
-
+// growing the AA doubles it's size, so the shrink threshold must be
+// smaller than half the grow threshold to have a hysteresis
+static assert(GROW_FAC * SHRINK_NUM * GROW_DEN < GROW_NUM * SHRINK_DEN);
+// initial load factor (for literals), mean of both thresholds
 private enum INIT_NUM = (GROW_DEN * SHRINK_NUM + GROW_NUM * SHRINK_DEN) / 2;
 private enum INIT_DEN = SHRINK_DEN * GROW_DEN;
 
 private enum INIT_NUM_BUCKETS = 8;
-
-private enum SHRINK_THR = 10 /* % */;
+// magic hash constants to distinguish empty, deleted, and filled buckets
+private enum HASH_EMPTY = 0;
+private enum HASH_DELETED = 0x1;
+private enum HASH_FILLED_MARK = size_t(1) << 8 * size_t.sizeof - 1;
 
 private {
     alias hash_t = size_t;
@@ -42,21 +47,11 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(Key key) @nogc @safe nothrow pure {
-            static if(is(K : int)){
-                key ^= (key >> 20) ^ (key >> 12);
-                return key ^ (key >> 7) ^ (key >> 4);
-            } else
-            static if(is(K == string)){
-                hash_t hash = 0;
-                foreach(ref v; key)
-                    hash = hash * 11 + v;
-                return hash;
-            } else
-            static assert(false, "Unsupported key type!");
+        static hash_t getHash(scope const Key key) @nogc @safe nothrow pure {
+            return key.hashOf;
         }
 
-        static bool equals(ref const Key k1, ref const Key k2) @nogc nothrow pure {
+        static bool equals(scope const Key k1, scope const Key k2) @nogc nothrow pure {
             static if(is(K : int)){
                 return k1 == k2;
             } else
@@ -70,167 +65,187 @@ private {
 }
 
 struct Bcaa(K, V){
-    alias TKey = KeyType!K;
-
-    struct Node {
-        Node* next;
-        hash_t hash;
+    
+    struct Node{
         K key;
         V val;
     }
 
-    size_t nodes;
+    struct Bucket {
+    private pure nothrow @nogc:
+        size_t hash;
+        Node* entry;
+        @property bool empty() const @nogc nothrow {
+            return hash == HASH_EMPTY;
+        }
+
+        @property bool deleted() const @nogc nothrow {
+            return hash == HASH_DELETED;
+        }
+
+        @property bool filled() const @safe @nogc nothrow {
+            return cast(ptrdiff_t) hash < 0;
+        }
+    }
+    
+    private Bucket[] buckets;
+
+    uint firstUsed;
+    uint used;
+    uint deleted;
+
+    alias TKey = KeyType!K;
     TKey tkey;
 
-    private Node*[] htable;
-
-    size_t length() @nogc nothrow {
-        return nodes;
+    @property size_t length() const pure nothrow @nogc {
+        //assert(used >= deleted);
+        return used - deleted;
     }
 
-    bool empty() const pure nothrow @nogc {
-        return htable is null || !htable.length;
-    }
-
-    private Node*[] allocHtable(size_t sz) @nogc nothrow {
-        auto hptr = cast(Node**)malloc(sz * (Node*).sizeof);
-        Node*[] _htable = hptr[0..sz];
-        _htable[] = null;
+    private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
+        Bucket[] _htable = (cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
+        _htable[] = Bucket.init;
         return _htable;
     }
 
     private void initTableIfNeeded() @nogc nothrow {
-        if(htable is null)
-            htable = allocHtable(INIT_NUM_BUCKETS);
+        if(buckets is null){
+            buckets = allocHtable(INIT_NUM_BUCKETS);
+            firstUsed = cast(uint)INIT_NUM_BUCKETS;
+        }
+            
+    }
+    @property size_t dim() const pure nothrow @nogc {
+        return buckets.length;
     }
 
-    void set(ref const K key, ref const V val) @nogc nothrow {
-        initTableIfNeeded();
+    @property size_t mask() const pure nothrow @nogc {
+        return dim - 1;
+    }
 
-        hash_t keyHash = tkey.getHash(key);
-        const size_t pos = keyHash % htable.length;
+    inout(Bucket)* findSlotInsert(const size_t hash) inout pure nothrow @nogc {
+        for (size_t i = hash & mask, j = 1;; ++j){
+            if (!buckets[i].filled)
+                return &buckets[i];
+            i = (i + j) & mask;
+        }
+    }
 
-        Node *list = htable[pos];
-        Node *temp = list;
+    inout(Bucket)* findSlotLookup(size_t hash, scope const K key) inout nothrow @nogc {
+        for (size_t i = hash & mask, j = 1;; ++j){
 
-        while(temp){
-            if(tkey.equals(temp.key, key)){
-                temp.val = val;
-                return;
+            if (buckets[i].hash == hash && tkey.equals(key, buckets[i].entry.key)){
+                return &buckets[i];
             }
-            temp = temp.next;
+                
+            else if (buckets[i].empty)
+                return null;
+            i = (i + j) & mask;
+        }
+    }
+
+    void set(scope const K key, scope const V val) @nogc nothrow {
+        initTableIfNeeded();
+        
+        immutable keyHash = calcHash(key);
+
+        if (auto p = findSlotLookup(keyHash, key)){
+            p.entry.val = val;
+            return;
         }
 
-        Node *newNode = cast(Node*)malloc(Node.sizeof);
+        auto p = findSlotInsert(keyHash);
+        
+        if (p.deleted)
+            --deleted;
+        
+        // check load factor and possibly grow
+        else if (++used * GROW_DEN > dim * GROW_NUM){
+            grow();
+            p = findSlotInsert(keyHash);
+            //assert(p.empty);
+        }
+        
+        // update search cache and allocate entry
+        firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
+
+        Node* newNode = cast(Node*)malloc(Node.sizeof);
         newNode.key = key;
         newNode.val = val;
-        newNode.hash = keyHash;
-        newNode.next = list;
 
-        if ((nodes + 1) * GROW_DEN > htable.length * GROW_NUM)
-            grow();
-        
-        htable[pos] = newNode;
-
-        ++nodes;
+        p.hash = keyHash;
+        p.entry = newNode;
     }
 
-    private Node* lookup(ref const K key) @nogc nothrow {
-        hash_t keyHash = tkey.getHash(key);
-        const size_t pos = keyHash % htable.length;
-
-        Node* list = htable[pos];
-        Node* temp = list;
-        while(temp){
-            if(keyHash == temp.hash && tkey.equals(temp.key, key)){
-                return temp;
-            }
-            temp = temp.next;
-        }
-        return null;
+    private size_t calcHash(scope const K pkey) pure @nogc nothrow {
+        // highest bit is set to distinguish empty/deleted from filled buckets
+        immutable hash = tkey.getHash(pkey);
+        return mix(hash) | HASH_FILLED_MARK;
     }
+    
+    void resize(const size_t sz) @nogc nothrow {
+        auto obuckets = buckets;
+        buckets = allocHtable(sz);
 
-    void resize(size_t sz) @nogc nothrow {
-        if(sz == htable.length)
-            return;
-        Node*[] newHTable = allocHtable(sz);
-
-        foreach (ref e; htable){
-            while (e){
-                auto en = e.next;
-                auto b = &newHTable[e.hash % sz];
-                e.next = *b;
-                *b = e;
-                e = en;
-            }
+        foreach (ref b; obuckets[firstUsed .. $]){
+            if (b.filled)
+                *findSlotInsert(b.hash) = b;
+            if (b.empty)
+                core.stdc.stdlib.free(b.entry);
         }
 
-        core.stdc.stdlib.free(htable.ptr);
-        htable = newHTable;
+        firstUsed = 0;
+        used -= deleted;
+        deleted = 0;
+
+        core.stdc.stdlib.free(obuckets.ptr);
     }
 
     void rehash() @nogc nothrow {
-        if (!empty)
-            return;
-        resize(nextpow2(INIT_DEN * length / INIT_NUM));
+        if (!length)
+            resize(nextpow2(INIT_DEN * length / INIT_NUM));
     }
 
     void grow() @nogc nothrow {
-        if (nodes * SHRINK_DEN > GROW_FAC * htable.length * SHRINK_NUM){
-            resize(GROW_FAC * htable.length);
-            //import core.stdc.stdio;
-            //printf("grow\n");
-        }
-            
+        if (length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM)
+            resize(dim);
+        else
+            resize(GROW_FAC * dim);
     }
 
     void shrink() @nogc nothrow {
-        const ulong load = nodes * 100 / htable.length;
-        if (htable.length > INIT_NUM_BUCKETS && load < SHRINK_THR){
-            resize(htable.length / GROW_FAC);
-            //import core.stdc.stdio;
-            //printf("shrink\n");
-        }   
+        if (dim > INIT_NUM_BUCKETS)
+            resize(dim / GROW_FAC);
     }
 
     bool remove(scope const K key) @nogc nothrow {
-        if (!nodes)
+        if (!length)
             return false;
-        const keyHash = tkey.getHash(key);
-        const size_t pos = keyHash % htable.length;
 
-        Node* current, previous;
-        previous = null;
-        for (current = htable[pos];
-            current != null;
-            previous = current,
-            current = current.next) {
-            
-            if (keyHash == current.hash && tkey.equals(current.key, key)){
-                if (previous == null) {
-                    htable[pos] = current.next;
-                } else {
-                    previous.next = current.next;
-                }
-                core.stdc.stdlib.free(current);
-                current = null;
-                --nodes;
+        immutable hash = calcHash(key);
+        if (auto p = findSlotLookup(hash, key)){
+            // clear entry
+            p.hash = HASH_DELETED;
+            //core.stdc.stdlib.free(p.entry);
+            p.entry = null;
+
+            ++deleted;
+            if (length * SHRINK_DEN < dim * SHRINK_NUM)
                 shrink();
-                return true;
-            }
+
+            return true;
         }
-    
         return false;
     }
 
-    V get(ref const K key) @nogc nothrow {
-        if(auto ret = opBinaryRight!"in"(key))
-            return *ret;
-        return V.init;
+    V get(scope const K key) @nogc nothrow {
+        return opIndex(key);
     }
 
     V opIndex(scope const K key) @nogc nothrow {
-        return get(key);
+        if(auto ret = opBinaryRight!"in"(key))
+            return *ret;
+        return V.init;
     }
 
     void opIndexAssign(scope const V value, scope const K key) @nogc nothrow {
@@ -239,8 +254,9 @@ struct Bcaa(K, V){
 
     V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
         static if (op == "in"){
-            if(auto node = lookup(key))
-                return &node.val;
+            immutable keyHash = calcHash(key);
+            if (auto buck = findSlotLookup(keyHash, key))
+                return &buck.entry.val;
             return null;
         } else
         static assert(0, "Operator "~op~" not implemented");
@@ -248,17 +264,15 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(keys.ptr);
     K[] keys() @nogc nothrow {
-        K[] ks = (cast(K*)malloc(nodes * K.sizeof))[0..nodes];
+        K[] ks = (cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
-        foreach(i; 0..htable.length){
-            auto node = htable[i];
-            if(node is null)
+        foreach(i; 0..buckets.length){
+            auto buck = buckets[i];
+            if (!buck.filled){
                 continue;
-            Node* tmp = node;
-            while(tmp){
-                ks[j++] = tmp.key;
-                tmp = tmp.next;
             }
+            Node* tmp = buck.entry;
+            ks[j++] = tmp.key;
         }
 
         return ks;
@@ -266,43 +280,38 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(values.ptr);
     V[] values() @nogc nothrow {
-        V[] vals = (cast(V*)malloc(nodes * V.sizeof))[0..nodes];
+        V[] vals = (cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
-        foreach(i; 0..htable.length){
-            auto node = htable[i];
-            if(node is null)
+        foreach(i; 0..buckets.length){
+            auto buck = buckets[i];
+            if (!buck.filled){
                 continue;
-            Node* tmp = node;
-            while(tmp){
-                vals[j++] = tmp.val;
-                tmp = tmp.next;
             }
+            Node* tmp = buck.entry;
+            vals[j++] = tmp.val;
         }
 
         return vals;
     }
 
     void clear() @nogc nothrow {
-        foreach (ref e; htable){
-            while (e){
-                auto en = e;
-                e = e.next;
-                core.stdc.stdlib.free(en);
-            }
-        }
-        nodes = 0;
+        import core.stdc.string : memset;
+        // clear all data, but don't change bucket array length
+        memset(&buckets[firstUsed], 0, (buckets.length - firstUsed) * Bucket.sizeof);
+        deleted = used = 0;
+        firstUsed = cast(uint) dim;
     }
 
     void free() @nogc nothrow {
         clear();
-        core.stdc.stdlib.free(htable.ptr);
-        htable = null;
+        core.stdc.stdlib.free(buckets.ptr);
+        buckets = null;
     }
 
     // TODO: .byKey(), .byValue(), .byKeyValue()
 }
 
-private size_t nextpow2(const size_t n) pure nothrow @nogc {
+private size_t nextpow2(scope const size_t n) pure nothrow @nogc {
     import core.bitop : bsr;
 
     if (!n)
@@ -310,6 +319,22 @@ private size_t nextpow2(const size_t n) pure nothrow @nogc {
 
     const isPowerOf2 = !((n - 1) & n);
     return 1 << (bsr(n) + !isPowerOf2);
+}
+
+private size_t mix(size_t h) @safe pure nothrow @nogc {
+    enum m = 0x5bd1e995;
+    h ^= h >> 13;
+    h *= m;
+    h ^= h >> 15;
+    return h;
+}
+
+private T min(T)(scope const T a, scope const T b) pure nothrow @nogc {
+    return a < b ? a : b;
+}
+
+private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
+    return b < a ? a : b;
 }
 
 unittest {

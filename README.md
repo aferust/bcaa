@@ -1,7 +1,6 @@
 # bcaa
-Simple associative array implementation for D (-betterC).
- * compatible with betterC.
- * similar to built-in AA (some codes were borrowed from druntime and DMD).
+Simple associative array implementation for D (-betterC). Actually, this is a simplified betterC port of druntime/blob/master/src/rt/aaA.d
+ * betterC port of druntime/blob/master/src/rt/aaA
  * memory management using malloc and free.
  * supported key types: string and integral types.
 

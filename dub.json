@@ -6,8 +6,8 @@
 	"description": "Simple associative array implementation for D (-betterC)",
 	"license": "boost",
     "name": "bcaa",
-    "version": "0.0.1",
-    "dflags": ["-betterC"],
+    "version": "0.0.2",
+    "dflags": ["-betterC", "-inline", "-O", "-release"],
     "importPaths": ["source"],
     "sourcePaths": ["source"],
     "configurations": [
