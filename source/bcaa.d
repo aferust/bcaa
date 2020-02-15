@@ -297,10 +297,18 @@ struct Bcaa(K, V){
         return vals;
     }
 
-    void clear() @nogc nothrow { // WIP - don't use this - may leak memory
+    void clear() @nogc nothrow {
+        /+ not sure if this works with this port
         import core.stdc.string : memset;
         // clear all data, but don't change bucket array length
         memset(&buckets[firstUsed], 0, (buckets.length - firstUsed) * Bucket.sizeof);
+        +/
+        // just loop over entire bucket vec
+        foreach(ref b; buckets)
+            if(b.entry !is null){
+                core.stdc.stdlib.free(b.entry);
+                b.entry = null;
+            }
         deleted = used = 0;
         firstUsed = cast(uint) dim;
     }
