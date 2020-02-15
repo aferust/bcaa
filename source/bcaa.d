@@ -294,7 +294,7 @@ struct Bcaa(K, V){
         return vals;
     }
 
-    void clear() @nogc nothrow {
+    void clear() @nogc nothrow { // WIP - don't use this - may leak memory
         import core.stdc.string : memset;
         // clear all data, but don't change bucket array length
         memset(&buckets[firstUsed], 0, (buckets.length - firstUsed) * Bucket.sizeof);
@@ -303,8 +303,11 @@ struct Bcaa(K, V){
     }
 
     void free() @nogc nothrow {
-        clear();
+        foreach(ref b; buckets)
+            if(b.entry !is null)
+                core.stdc.stdlib.free(b.entry);
         core.stdc.stdlib.free(buckets.ptr);
+        deleted = used = 0;
         buckets = null;
     }
 
