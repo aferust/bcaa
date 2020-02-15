@@ -190,8 +190,11 @@ struct Bcaa(K, V){
         foreach (ref b; obuckets[firstUsed .. $]){
             if (b.filled)
                 *findSlotInsert(b.hash) = b;
-            if (b.empty)
+            if (b.empty){
                 core.stdc.stdlib.free(b.entry);
+                b.entry = null;
+            }
+                
         }
 
         firstUsed = 0;
