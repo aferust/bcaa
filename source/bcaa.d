@@ -230,7 +230,7 @@ struct Bcaa(K, V){
             // clear entry
             p.hash = HASH_DELETED;
             //core.stdc.stdlib.free(p.entry);
-            p.entry = null;
+            //p.entry = null;
 
             ++deleted;
             if (length * SHRINK_DEN < dim * SHRINK_NUM)
