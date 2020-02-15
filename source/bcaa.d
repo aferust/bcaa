@@ -307,8 +307,11 @@ struct Bcaa(K, V){
 
     void free() @nogc nothrow {
         foreach(ref b; buckets)
-            if(b.entry !is null)
+            if(b.entry !is null){
                 core.stdc.stdlib.free(b.entry);
+                b.entry = null;
+            }
+                
         core.stdc.stdlib.free(buckets.ptr);
         deleted = used = 0;
         buckets = null;
