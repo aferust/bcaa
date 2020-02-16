@@ -205,7 +205,7 @@ struct Bcaa(K, V){
     }
 
     void rehash() @nogc nothrow {
-        if (!length)
+        if (length)
             resize(nextpow2(INIT_DEN * length / INIT_NUM));
     }
 
