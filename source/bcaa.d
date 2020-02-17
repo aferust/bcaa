@@ -52,12 +52,16 @@ private {
         }
 
         static bool equals(scope const Key k1, scope const Key k2) @nogc nothrow pure {
-            static if(is(K : int)){
+            static if(is(K : int) || is(K : long)){
                 return k1 == k2;
             } else
             static if(is(K == string)){
                 return k1.length == k2.length &&
                     memcmp(k1.ptr, k2.ptr, k1.length) == 0;
+            } else
+            static if(is(K == const(char)*)){
+                return strlen(k1) == strlen(k2) &&
+                    strcmp(k1, k2) == 0;
             } else
             static assert(false, "Unsupported key type!");
         }
