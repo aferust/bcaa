@@ -154,7 +154,7 @@ struct Bcaa(K, V){
         immutable keyHash = calcHash(key);
 
         if (auto p = findSlotLookup(keyHash, key)){
-            p.entry.val = val;
+            p.entry.val = cast(V)val;
             return;
         }
 
@@ -175,7 +175,7 @@ struct Bcaa(K, V){
 
         Node* newNode = cast(Node*)malloc(Node.sizeof);
         newNode.key = key;
-        newNode.val = val;
+        newNode.val = cast(V)val;
 
         p.hash = keyHash;
         p.entry = newNode;
