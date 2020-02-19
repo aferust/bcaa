@@ -326,6 +326,17 @@ struct Bcaa(K, V){
         buckets = null;
     }
 
+    Bcaa!(K, V) copy() @nogc nothrow {
+        auto new_buckets_ptr = cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
+        memcpy(new_buckets_ptr, buckets.ptr, buckets.length * Bucket.sizeof);
+        Bcaa!(K, V) newAA;
+        newAA.buckets = new_buckets_ptr[0..buckets.length];
+        newAA.firstUsed = firstUsed;
+        newAA.used = used;
+        newAA.deleted = deleted;
+        return newAA;
+    }
+
     int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
         int result = 0;
         if (buckets is null || buckets.length == 0)
