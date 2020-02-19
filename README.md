@@ -34,6 +34,10 @@ Simple associative array implementation for D (-betterC). Actually, this is a si
     aa1["İlter"] = "Kurcala";
     aa1["Ferhat"] = "Kurtulmuş";
 
+    foreach(pair; aa1){
+        writeln(*pair.keyp, " -> ", *pair.valp);
+    }
+    
     if (auto valptr = "Dan" in aa1)
         printf("%s exists!!!!\n", (*valptr).ptr );
     else

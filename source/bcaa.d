@@ -273,13 +273,11 @@ struct Bcaa(K, V){
     K[] keys() @nogc nothrow {
         K[] ks = (cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
-        foreach(i; 0..buckets.length){
-            auto buck = buckets[i];
-            if (!buck.filled){
+        foreach (ref b; buckets[firstUsed .. $]){
+            if (!b.filled){
                 continue;
             }
-            Node* tmp = buck.entry;
-            ks[j++] = tmp.key;
+            ks[j++] = b.entry.key;
         }
 
         return ks;
@@ -289,13 +287,11 @@ struct Bcaa(K, V){
     V[] values() @nogc nothrow {
         V[] vals = (cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
-        foreach(i; 0..buckets.length){
-            auto buck = buckets[i];
-            if (!buck.filled){
+        foreach (ref b; buckets[firstUsed .. $]){
+            if (!b.filled){
                 continue;
             }
-            Node* tmp = buck.entry;
-            vals[j++] = tmp.val;
+            vals[j++] = b.entry.val;
         }
 
         return vals;
@@ -330,7 +326,42 @@ struct Bcaa(K, V){
         buckets = null;
     }
 
-    // TODO: .byKey(), .byValue(), .byKeyValue()
+    int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
+        int result = 0;
+        if (buckets is null || buckets.length == 0)
+            return 0;
+        foreach (ref b; buckets[firstUsed .. $]){
+            if (!b.filled)
+                continue;
+            result = dg(AAPair!(K, V)(&b.entry.key, &b.entry.val));
+            if (result) {
+                break;
+            }
+        }
+        return 0;
+    }
+
+    // for GC usages
+    int opApply(int delegate(AAPair!(K, V)) dg) {
+        int result = 0;
+        if (buckets is null || buckets.length == 0)
+            return 0;
+        foreach (ref b; buckets[firstUsed .. $]){
+            if (!b.filled)
+                continue;
+            result = dg(AAPair!(K, V)(&b.entry.key, &b.entry.val));
+            if (result) {
+                break;
+            }
+        }
+        return 0;
+    }
+    // TODO: .byKey(), .byValue(), .byKeyValue() ???
+}
+
+struct AAPair(K, V) {
+    K* keyp;
+    V* valp;
 }
 
 private size_t nextpow2(scope const size_t n) pure nothrow @nogc {
@@ -387,6 +418,10 @@ unittest {
     aa1["Dan"] = "Patlansky";
     aa1["İlter"] = "Kurcala";
     aa1["Ferhat"] = "Kurtulmuş";
+
+    foreach(pair; aa1){
+        writeln(*pair.keyp, " -> ", *pair.valp);
+    }
 
     if (auto valptr = "Dan" in aa1)
         printf("%s exists!!!!\n", (*valptr).ptr );
