@@ -2,7 +2,6 @@
 Simple associative array implementation for D (-betterC). Actually, this is a simplified betterC port of druntime/blob/master/src/rt/aaA.d
  * betterC port of druntime/blob/master/src/rt/aaA
  * memory management using malloc and free.
- * supported key types: string, const(char)*, and integral types.
 
 ## Examples:
 ```d
