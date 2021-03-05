@@ -257,6 +257,9 @@ struct Bcaa(K, V){
 
     V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
         static if (op == "in"){
+            if (!length)
+                return null;
+
             immutable keyHash = calcHash(key);
             if (auto buck = findSlotLookup(keyHash, key))
                 return &buck.entry.val;
@@ -471,4 +474,10 @@ unittest {
         printf("%s \n", (*valPtr).brand.ptr);
 
     guitars.free;
+}
+
+// Test "in" works for AA without allocated storage.
+unittest {
+    Bcaa!(int, int) emptyMap;
+    assert(0 !in emptyMap);
 }
