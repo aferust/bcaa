@@ -64,7 +64,7 @@ private {
     }
 }
 
-struct Bcaa(K, V){
+struct Bcaa(K, V, Allocator = SimpleMallocator){
     
     struct Node{
         K key;
@@ -103,7 +103,8 @@ struct Bcaa(K, V){
     }
 
     private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
-        Bucket[] _htable = (cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
+        Bucket[] _htable = Allocator.make!(Bucket[])(sz);
+         //(cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
         _htable[] = Bucket.init;
         return _htable;
     }
@@ -169,7 +170,8 @@ struct Bcaa(K, V){
         // update search cache and allocate entry
         firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
 
-        Node* newNode = cast(Node*)malloc(Node.sizeof);
+        Node* newNode = Allocator.make!Node();
+        //cast(Node*)malloc(Node.sizeof);
         newNode.key = key;
         newNode.val = cast(V)val;
 
@@ -191,7 +193,8 @@ struct Bcaa(K, V){
             if (b.filled)
                 *findSlotInsert(b.hash) = b;
             if (b.empty){
-                core.stdc.stdlib.free(b.entry);
+                Allocator.dispose(b.entry);
+                //core.stdc.stdlib.free(b.entry);
                 b.entry = null;
             }
                 
@@ -201,7 +204,8 @@ struct Bcaa(K, V){
         used -= deleted;
         deleted = 0;
 
-        core.stdc.stdlib.free(obuckets.ptr);
+        //core.stdc.stdlib.free(obuckets.ptr);
+        Allocator.dispose(obuckets.ptr);
     }
 
     void rehash() @nogc nothrow {
@@ -270,7 +274,8 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(keys.ptr);
     K[] keys() @nogc nothrow {
-        K[] ks = (cast(K*)malloc(length * K.sizeof))[0..length];
+        K[] ks = Allocator.make!(K[])(length);
+        //(cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled){
@@ -284,7 +289,8 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(values.ptr);
     V[] values() @nogc nothrow {
-        V[] vals = (cast(V*)malloc(length * V.sizeof))[0..length];
+        V[] vals = Allocator.make!(V[])(length);
+        //(cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled){
@@ -305,7 +311,8 @@ struct Bcaa(K, V){
         // just loop over entire slice
         foreach(ref b; buckets)
             if(b.entry !is null){
-                core.stdc.stdlib.free(b.entry);
+                //core.stdc.stdlib.free(b.entry);
+                Allocator.dispose(b.entry);
                 b.entry = null;
             }
         deleted = used = 0;
@@ -316,20 +323,23 @@ struct Bcaa(K, V){
     void free() @nogc nothrow {
         foreach(ref b; buckets)
             if(b.entry !is null){
-                core.stdc.stdlib.free(b.entry);
+                //core.stdc.stdlib.free(b.entry);
+                Allocator.dispose(b.entry);
                 b.entry = null;
             }
                 
-        core.stdc.stdlib.free(buckets.ptr);
+        //core.stdc.stdlib.free(buckets.ptr);
+        Allocator.dispose(buckets);
         deleted = used = 0;
         buckets = null;
     }
 
     Bcaa!(K, V) copy() @nogc nothrow {
-        auto new_buckets_ptr = cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
-        memcpy(new_buckets_ptr, buckets.ptr, buckets.length * Bucket.sizeof);
+        auto new_buckets = Allocator.make!(Bucket[])(buckets.length);
+        //cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
+        memcpy(new_buckets.ptr, buckets.ptr, buckets.length * Bucket.sizeof);
         Bcaa!(K, V) newAA;
-        newAA.buckets = new_buckets_ptr[0..buckets.length];
+        newAA.buckets = new_buckets[0..buckets.length];
         newAA.firstUsed = firstUsed;
         newAA.used = used;
         newAA.deleted = deleted;
@@ -453,7 +463,8 @@ unittest {
     auto keys = aa1.keys;
     foreach(key; keys)
         printf("%s -> %s \n", key.ptr, aa1[key].ptr);
-    core.stdc.stdlib.free(keys.ptr);
+    //core.stdc.stdlib.free(keys.ptr);
+    SimpleMallocator.dispose(keys);
     aa1.free;
 
     struct Guitar {
@@ -480,4 +491,137 @@ unittest {
 unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
+}
+
+/// Helper to handle allocations using Malloc & Free...
+struct SimpleMallocator {
+    import std.traits : isArray, PointerTarget, isPointer;
+
+    public:
+
+    /**
+     Creates a new instance of `T`
+    */
+    static T* make(T)() @nogc @trusted nothrow
+    if (is(T == struct) && __traits(isPOD, T)) {
+        T* ptr = cast(T*) malloc(T.sizeof);
+        __gshared immutable T init = T.init;
+        memcpy(ptr, &init, T.sizeof);
+        return ptr;
+    }
+
+    /**
+     Creates a new array 'T'
+
+     Params:
+        length = Size on elements of the array
+    */
+    static T make(T)(size_t length) @nogc @trusted nothrow
+    if (isArray!T)
+    in (length > 0, "Invalid size of dynamic array. Must greater that 0") {
+        import std.traits : ForeachType;
+
+        alias ArrayOf = ForeachType!T;
+        return makeArray!ArrayOf(length);
+    }
+
+    /**
+     Disposes a instance of `T` created previsuly with Mallocator.
+
+     If the instances stored on array, are a struct or a class, and have a destructor, calls to his destructor.
+     */
+    static void dispose(T)(ref T array) @trusted
+    if (isArray!T) {
+        alias ArrayOf = PointerTarget!(typeof(array.ptr));
+        static if (!isPointer!ArrayOf) {
+            // Calls the destructors of each instanced stored on the array
+            static if (__traits(hasMember, ArrayOf, "__xdtor")) {
+                foreach (ref ArrayOf t; array) {
+                    t.__xdtor();
+                }
+            } else static if (__traits(hasMember, ArrayOf, "__dtor")) {
+                foreach (ArrayOf t; array) {
+                    t.__dtor();
+                }
+            }
+        }
+        free(cast(void*) array.ptr);
+    }
+
+    /**
+     Disposes a instance of `T` created previsuly with Mallocator.
+
+     If `T` is a struct or a class, and have a destructor, calls to his destructor.
+     */
+    static void dispose(T)(T object) @trusted
+    if (!isArray!T && !is(T == class)) {
+        static if (__traits(hasMember, T, "__xdtor")) {
+            object.__xdtor();
+        } else static if (__traits(hasMember, T, "__dtor")) {
+            object.__dtor();
+        }
+
+        free(cast(void*) object);
+    }
+
+    /**
+     Creates a dynamic array
+
+     Params:
+        length = Length of the array
+     Returns: The dynamic array
+     */
+    private static T[] makeArray(T)(size_t length) nothrow @nogc
+    if (__traits(isPOD, T))
+    in (length > 0, "Invalid size of dynamic array. Must greater that 0") {
+        void* ptr = malloc(T.sizeof * length);
+        T[] ret = (cast(T*) ptr)[0 .. length];
+
+        __gshared immutable T init = T.init;
+        foreach (i; 0 .. ret.length) {
+            memcpy(&ret[i], &init, T.sizeof);
+        }
+        return ret;
+    }
+}
+
+
+unittest
+{
+    {
+        auto array = SimpleMallocator.make!(int[])(10);
+        scope (exit)
+            SimpleMallocator.dispose(array);
+        array[0] = 100;
+        array[1] = 200;
+        
+        assert(array.length == 10);
+    }
+
+    {
+        struct S {
+            int x, y;
+        }
+
+        auto array = SimpleMallocator.make!(S[])(4);
+        scope (exit)
+            SimpleMallocator.dispose(array);
+
+        assert(array.length == 4);
+    }
+
+    {
+        struct S {
+            int x, y;
+        }
+
+        auto s = SimpleMallocator.make!S();
+        scope (exit)
+            SimpleMallocator.dispose(s);
+        s.x = 123;
+        s.y = 321;
+
+        assert(s.x == 123);
+        assert(s.y == 321);
+    }
 }
