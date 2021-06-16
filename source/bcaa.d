@@ -19,6 +19,9 @@ version(LDC){
     }
 }
 
+import std.experimental.allocator;
+import std.experimental.allocator.common : stateSize;
+import std.experimental.allocator.mallocator : Mallocator;
 import core.stdc.stdlib;
 import core.stdc.string;
 
@@ -64,8 +67,8 @@ private {
     }
 }
 
-struct Bcaa(K, V){
-    
+struct Bcaa(K, V, Allocator = Mallocator) {
+
     struct Node{
         K key;
         V val;
@@ -87,7 +90,7 @@ struct Bcaa(K, V){
             return cast(ptrdiff_t) hash < 0;
         }
     }
-    
+
     private Bucket[] buckets;
 
     uint firstUsed;
@@ -97,13 +100,38 @@ struct Bcaa(K, V){
     alias TKey = KeyType!K;
     TKey tkey;
 
+    static if (stateSize!Allocator != 0)
+	{
+        private Allocator allocator;
+
+        /// No default construction if an allocator must be provided.
+		this() @disable;
+
+		/**
+		 * Use the given `allocator` for allocations.
+		 */
+		this(Allocator allocator)
+		in
+		{
+			assert(allocator !is null, "Allocator must not be null");
+		}
+		do
+		{
+			this.allocator = allocator;
+		}
+    } else {
+        alias allocator = Allocator.instance;
+    }
+
+
     @property size_t length() const pure nothrow @nogc {
         //assert(used >= deleted);
         return used - deleted;
     }
 
     private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
-        Bucket[] _htable = (cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
+        Bucket[] _htable = allocator.makeArray!(Bucket)(sz);
+         //(cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
         _htable[] = Bucket.init;
         return _htable;
     }
@@ -172,7 +200,7 @@ struct Bcaa(K, V){
         p.hash = keyHash;
 
         if(!p.deleted){
-            Node* newNode = cast(Node*)malloc(Node.sizeof);
+            Node* newNode = allocator.make!Node();
             newNode.key = key;
             newNode.val = cast(V)val;
             
@@ -197,7 +225,8 @@ struct Bcaa(K, V){
             if (b.filled)
                 *findSlotInsert(b.hash) = b;
             if (b.empty || b.deleted){
-                core.stdc.stdlib.free(b.entry);
+                allocator.dispose(b.entry);
+                //core.stdc.stdlib.free(b.entry);
                 b.entry = null;
             }
                 
@@ -207,7 +236,8 @@ struct Bcaa(K, V){
         used -= deleted;
         deleted = 0;
 
-        core.stdc.stdlib.free(obuckets.ptr);
+        //core.stdc.stdlib.free(obuckets.ptr);
+        allocator.dispose(obuckets.ptr);
     }
 
     void rehash() @nogc nothrow {
@@ -276,7 +306,8 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(keys.ptr);
     K[] keys() @nogc nothrow {
-        K[] ks = (cast(K*)malloc(length * K.sizeof))[0..length];
+        K[] ks = allocator.makeArray!K(length);
+        //(cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled){
@@ -290,7 +321,8 @@ struct Bcaa(K, V){
 
     /// returning slice must be deallocated like free(values.ptr);
     V[] values() @nogc nothrow {
-        V[] vals = (cast(V*)malloc(length * V.sizeof))[0..length];
+        V[] vals = allocator.makeArray!V(length);
+        //(cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled){
@@ -311,7 +343,8 @@ struct Bcaa(K, V){
         // just loop over entire slice
         foreach(ref b; buckets)
             if(b.entry !is null){
-                core.stdc.stdlib.free(b.entry);
+                //core.stdc.stdlib.free(b.entry);
+                allocator.dispose(b.entry);
                 b.entry = null;
             }
         deleted = used = 0;
@@ -322,20 +355,23 @@ struct Bcaa(K, V){
     void free() @nogc nothrow {
         foreach(ref b; buckets)
             if(b.entry !is null){
-                core.stdc.stdlib.free(b.entry);
+                //core.stdc.stdlib.free(b.entry);
+                allocator.dispose(b.entry);
                 b.entry = null;
             }
                 
-        core.stdc.stdlib.free(buckets.ptr);
+        //core.stdc.stdlib.free(buckets.ptr);
+        allocator.dispose(buckets);
         deleted = used = 0;
         buckets = null;
     }
 
     Bcaa!(K, V) copy() @nogc nothrow {
-        auto new_buckets_ptr = cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
-        memcpy(new_buckets_ptr, buckets.ptr, buckets.length * Bucket.sizeof);
+        auto new_buckets = allocator.makeArray!Bucket(buckets.length);
+        //cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
+        memcpy(new_buckets.ptr, buckets.ptr, buckets.length * Bucket.sizeof);
         Bcaa!(K, V) newAA;
-        newAA.buckets = new_buckets_ptr[0..buckets.length];
+        newAA.buckets = new_buckets[0..buckets.length];
         newAA.firstUsed = firstUsed;
         newAA.used = used;
         newAA.deleted = deleted;
@@ -411,79 +447,83 @@ unittest {
     import core.stdc.time;
 
     clock_t begin = clock();
+    {
+        Bcaa!(int, int) aa0;
+        scope(exit) aa0.free;
 
-    Bcaa!(int, int) aa0;
+        foreach (i; 0..1000_000){
+            aa0[i] = i;
+        }
 
-    foreach (i; 0..1000000){
-        aa0[i] = i;
+        foreach (i; 2000..1000_000){
+            aa0.remove(i);
+        }
+
+        printf("%d \n", aa0[1000]);
     }
-
-    foreach (i; 2000..1000000){
-        aa0.remove(i);
-    }
-
-    printf("%d \n", aa0[1000]);
-    aa0.free;
-
     clock_t end = clock(); printf("Elapsed time: %f \n", cast(double)(end - begin) / CLOCKS_PER_SEC);
 
-    Bcaa!(string, string) aa1;
+    {
+        Bcaa!(string, string) aa1;
+        scope(exit) aa1.free;
 
-    aa1["Stevie"] = "Ray Vaughan";
-    aa1["Asım Can"] = "Gündüz";
-    aa1["Dan"] = "Patlansky";
-    aa1["İlter"] = "Kurcala";
-    aa1["Ferhat"] = "Kurtulmuş";
+        aa1["Stevie"] = "Ray Vaughan";
+        aa1["Asım Can"] = "Gündüz";
+        aa1["Dan"] = "Patlansky";
+        aa1["İlter"] = "Kurcala";
+        aa1["Ferhat"] = "Kurtulmuş";
 
-    foreach(pair; aa1){
-        printf("%s -> %s", (*pair.keyp).ptr, (*pair.valp).ptr);
+        foreach(pair; aa1){
+            printf("%s -> %s", (*pair.keyp).ptr, (*pair.valp).ptr);
+        }
+
+        if (auto valptr = "Dan" in aa1)
+            printf("%s exists!!!!\n", (*valptr).ptr );
+        else
+            printf("does not exist!!!!\n".ptr);
+
+        assert(aa1.remove("Ferhat") == true);
+        assert(aa1["Ferhat"] == null);
+        assert(aa1.remove("Foe") == false);
+        assert(aa1["İlter"] =="Kurcala");
+
+        aa1.rehash();
+
+        printf("%s\n",aa1["Stevie"].ptr);
+        printf("%s\n",aa1["Asım Can"].ptr);
+        printf("%s\n",aa1["Dan"].ptr);
+        printf("%s\n",aa1["Ferhat"].ptr);
+
+        auto keys = aa1.keys;
+        scope(exit) Mallocator.instance.dispose(keys);
+        foreach(key; keys)
+            printf("%s -> %s \n", key.ptr, aa1[key].ptr);
+        //core.stdc.stdlib.free(keys.ptr);
+
+        struct Guitar {
+            string brand;
+        }
+
+        Bcaa!(int, Guitar) guitars;
+        scope(exit) guitars.free;
+
+        guitars[0] = Guitar("Fender");
+        guitars[3] = Guitar("Gibson");
+        guitars[356] = Guitar("Stagg");
+
+        assert(guitars[3].brand == "Gibson");
+
+        printf("%s \n", guitars[356].brand.ptr);
+
+        if(auto valPtr = 3 in guitars)
+            printf("%s \n", (*valPtr).brand.ptr);
     }
-
-    if (auto valptr = "Dan" in aa1)
-        printf("%s exists!!!!\n", (*valptr).ptr );
-    else
-        printf("does not exist!!!!\n".ptr);
-
-    assert(aa1.remove("Ferhat") == true);
-    assert(aa1["Ferhat"] == null);
-    assert(aa1.remove("Foe") == false);
-    assert(aa1["İlter"] =="Kurcala");
-
-    aa1.rehash();
-
-    printf("%s\n",aa1["Stevie"].ptr);
-    printf("%s\n",aa1["Asım Can"].ptr);
-    printf("%s\n",aa1["Dan"].ptr);
-    printf("%s\n",aa1["Ferhat"].ptr);
-
-    auto keys = aa1.keys;
-    foreach(key; keys)
-        printf("%s -> %s \n", key.ptr, aa1[key].ptr);
-    core.stdc.stdlib.free(keys.ptr);
-    aa1.free;
-
-    struct Guitar {
-        string brand;
-    }
-
-    Bcaa!(int, Guitar) guitars;
-
-    guitars[0] = Guitar("Fender");
-    guitars[3] = Guitar("Gibson");
-    guitars[356] = Guitar("Stagg");
-
-    assert(guitars[3].brand == "Gibson");
-
-    printf("%s \n", guitars[356].brand.ptr);
-
-    if(auto valPtr = 3 in guitars)
-        printf("%s \n", (*valPtr).brand.ptr);
-
-    guitars.free;
 }
 
 // Test "in" works for AA without allocated storage.
 unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
+
 }
+
