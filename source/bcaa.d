@@ -64,8 +64,9 @@ private {
     }
 }
 
-struct Bcaa(K, V, Allocator = SimpleMallocator){
-    
+struct Bcaa(K, V, Allocator = SimpleMallocator) {
+    static assert (isAllocator!Allocator);
+
     struct Node{
         K key;
         V val;
@@ -493,7 +494,14 @@ unittest {
     assert(0 !in emptyMap);
 }
 
-/// Helper to handle allocations using Malloc & Free...
+/// Verifies that an Struct or Class have the expected API for Allocator
+enum bool isAllocator(T) = __traits(hasMember, T, "make") && __traits(hasMember, T, "dispose");
+/*
+    && __traits(isTemplate, T.make) && __traits(isTemplate, T.dispose)
+    && __traits(compiles, T.make!(int[])(123) );
+    */
+
+/// Simple allocator using Malloc & Free...
 struct SimpleMallocator {
     import std.traits : isArray, PointerTarget, isPointer;
 
@@ -588,6 +596,9 @@ struct SimpleMallocator {
 
 unittest
 {
+    assert(isAllocator!SimpleMallocator);
+    assert(!isAllocator!int);
+
     {
         auto array = SimpleMallocator.make!(int[])(10);
         scope (exit)
