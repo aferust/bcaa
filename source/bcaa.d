@@ -169,12 +169,18 @@ struct Bcaa(K, V){
         // update search cache and allocate entry
         firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
 
-        Node* newNode = cast(Node*)malloc(Node.sizeof);
-        newNode.key = key;
-        newNode.val = cast(V)val;
-
         p.hash = keyHash;
-        p.entry = newNode;
+
+        if(!p.deleted){
+            Node* newNode = cast(Node*)malloc(Node.sizeof);
+            newNode.key = key;
+            newNode.val = cast(V)val;
+            
+            p.entry = newNode;
+        }else{
+            p.entry.key = key;
+            p.entry.val = cast(V)val;
+        }
     }
 
     private size_t calcHash(scope const K pkey) pure @nogc nothrow {
@@ -190,7 +196,7 @@ struct Bcaa(K, V){
         foreach (ref b; obuckets[firstUsed .. $]){
             if (b.filled)
                 *findSlotInsert(b.hash) = b;
-            if (b.empty){
+            if (b.empty || b.deleted){
                 core.stdc.stdlib.free(b.entry);
                 b.entry = null;
             }
