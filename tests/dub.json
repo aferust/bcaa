@@ -1,0 +1,17 @@
+{
+    "authors": [
+        "Ferhat Kurtulmuş"
+    ],
+    "copyright": "Copyright © 2020, Ferhat Kurtulmuş",
+    "description": "Simple associative array implementation for D (-betterC)",
+    "license": "boost",
+    "name": "betterc_test",
+    "targetType": "executable",
+    "importPaths": ["./"],
+    "sourcePaths": ["./"],
+    "dflags": ["-betterC"],
+    "dflags-ldc": ["-fsanitize=address"],
+    "dependencies": {
+      "bcaa": {"version": "*", "path": "../"}
+    }
+}

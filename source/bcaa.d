@@ -22,7 +22,6 @@ version(LDC){
 import std.experimental.allocator;
 import std.experimental.allocator.common : stateSize;
 import std.experimental.allocator.mallocator : Mallocator;
-import core.stdc.stdlib;
 import core.stdc.string;
 
 // grow threshold
@@ -100,27 +99,29 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     alias TKey = KeyType!K;
     TKey tkey;
 
-    static if (stateSize!Allocator != 0)
-	{
+    enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
+    static if (hasStatelessAllocator)
+    {
+        alias allocator = Allocator.instance;
+
+    } else {
         private Allocator allocator;
 
         /// No default construction if an allocator must be provided.
-		this() @disable;
+        this() @disable;
 
-		/**
-		 * Use the given `allocator` for allocations.
-		 */
-		this(Allocator allocator)
-		in
-		{
-			assert(allocator !is null, "Allocator must not be null");
-		}
-		do
-		{
-			this.allocator = allocator;
-		}
-    } else {
-        alias allocator = Allocator.instance;
+        /**
+        * Use the given `allocator` for allocations.
+        */
+        this(Allocator allocator)
+        in
+        {
+          assert(allocator !is null, "Allocator must not be null");
+        }
+        do
+        {
+          this.allocator = allocator;
+        }
     }
 
 
@@ -131,7 +132,6 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
         Bucket[] _htable = allocator.makeArray!(Bucket)(sz);
-         //(cast(Bucket*)malloc(sz * Bucket.sizeof))[0..sz];
         _htable[] = Bucket.init;
         return _htable;
     }
