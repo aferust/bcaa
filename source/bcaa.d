@@ -442,7 +442,7 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
     return b < a ? a : b;
 }
 
-unittest {
+@nogc unittest {
     import core.stdc.stdio;
     import core.stdc.time;
 
@@ -521,7 +521,7 @@ unittest {
 }
 
 // Test "in" works for AA without allocated storage.
-unittest {
+@nogc unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
 
