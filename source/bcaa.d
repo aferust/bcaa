@@ -141,7 +141,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
             buckets = allocHtable(INIT_NUM_BUCKETS);
             firstUsed = cast(uint)INIT_NUM_BUCKETS;
         }
-            
+
     }
     @property size_t dim() const pure nothrow @nogc {
         return buckets.length;
@@ -165,7 +165,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
             if (buckets[i].hash == hash && tkey.equals(key, buckets[i].entry.key)){
                 return &buckets[i];
             }
-                
+
             else if (buckets[i].empty)
                 return null;
             i = (i + j) & mask;
@@ -174,7 +174,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     void set(scope const K key, scope const V val) @nogc nothrow {
         initTableIfNeeded();
-        
+
         immutable keyHash = calcHash(key);
 
         if (auto p = findSlotLookup(keyHash, key)){
@@ -183,17 +183,17 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
 
         auto p = findSlotInsert(keyHash);
-        
+
         if (p.deleted)
             --deleted;
-        
+
         // check load factor and possibly grow
         else if (++used * GROW_DEN > dim * GROW_NUM){
             grow();
             p = findSlotInsert(keyHash);
             //assert(p.empty);
         }
-        
+
         // update search cache and allocate entry
         firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
 
@@ -203,7 +203,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
             Node* newNode = allocator.make!Node();
             newNode.key = key;
             newNode.val = cast(V)val;
-            
+
             p.entry = newNode;
         }else{
             p.entry.key = key;
@@ -216,7 +216,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         immutable hash = tkey.getHash(pkey);
         return mix(hash) | HASH_FILLED_MARK;
     }
-    
+
     void resize(const size_t sz) @nogc nothrow {
         auto obuckets = buckets;
         buckets = allocHtable(sz);
@@ -229,7 +229,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 //core.stdc.stdlib.free(b.entry);
                 b.entry = null;
             }
-                
+
         }
 
         firstUsed = 0;
@@ -334,7 +334,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return vals;
     }
 
-    void clear() @nogc nothrow { // WIP 
+    void clear() @nogc nothrow { // WIP
         /+ not sure if this works with this port
         import core.stdc.string : memset;
         // clear all data, but don't change bucket array length
@@ -359,7 +359,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 allocator.dispose(b.entry);
                 b.entry = null;
             }
-                
+
         //core.stdc.stdlib.free(buckets.ptr);
         allocator.dispose(buckets);
         deleted = used = 0;
@@ -525,5 +525,29 @@ unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
 
+}
+
+// Try to force a memory leak - issue #5
+@nogc unittest {
+    struct S {
+        int x;
+        int y;
+        string txt;
+    }
+
+    Bcaa!(int, S) aas;
+    scope(exit) aas.free;
+
+    for(int i = 1024; i < 2048; i++) {
+        aas[i] = S(i, i*2, "caca\0");
+    }
+    aas[100] = S(10, 20, "caca\0");
+
+    import core.stdc.stdio;
+    printf(".x=%d .y%d %s\n", aas[100].x, aas[100].y, aas[100].txt.ptr);
+
+    for(int i = 1024; i < 2048; i++) {
+        aas.remove(i);
+    }
 }
 
