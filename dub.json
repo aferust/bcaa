@@ -18,6 +18,11 @@
             "name": "betterC",
             "targetType": "library",
             "dflags": ["-betterC"]
+        },
+        {
+            "name": "unittest",
+            "targetType": "library",
+            "dflags-ldc": ["-fsanitize=address"]
         }
     ]
 }
