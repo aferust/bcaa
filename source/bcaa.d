@@ -58,6 +58,9 @@ private {
             static if(is(K == const(char)*)){
                 return strlen(k1) == strlen(k2) &&
                     strcmp(k1, k2) == 0;
+            } else static if(is(K == string)){
+                return strlen(k1.ptr) == strlen(k2.ptr) &&
+                    strcmp(k1.ptr, k2.ptr) == 0;
             } else {
                 return k1 == k2;
             }
@@ -70,31 +73,36 @@ private {
 // based on std.experimental.allocator.mallocator and 
 // https://github.com/submada/basic_string/blob/main/src/basic_string/package.d:
 
+import core.stdc.stdlib: realloc, malloc, cfree = free;
+
 struct Mallocator{
 	import std.experimental.allocator.common : platformAlignment;
 
 	enum uint alignment = platformAlignment;
 
-	static void[] allocate(size_t bytes)@trusted @nogc nothrow pure{
-		import core.memory : pureMalloc;
+	static void[] allocate(size_t bytes)@trusted @nogc nothrow /*pure*/{
+		//import core.memory : pureMalloc;
 		if (!bytes) return null;
-		auto p = pureMalloc(bytes);
+		//auto p = pureMalloc(bytes);
+        auto p = malloc(bytes);
 		return p ? p[0 .. bytes] : null;
 	}
 
-	static bool deallocate(void[] b)@system @nogc nothrow pure{
-		import core.memory : pureFree;
-		pureFree(b.ptr);
+	static bool deallocate(void[] b)@system @nogc nothrow /*pure*/{
+		//import core.memory : pureFree;
+		//pureFree(b.ptr);
+        cfree(b.ptr);
 		return true;
 	}
 
-    static bool deallocate(void* b)@system @nogc nothrow pure{
+    static bool deallocate(void* b)@system @nogc nothrow /*pure*/{
 		import core.memory : pureFree;
-		pureFree(b);
+		//pureFree(b);
+        cfree(b);
 		return true;
 	}
 
-	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow pure{
+	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow /*pure*/{
 		import core.memory : pureRealloc;
 		if (!s){
 			// fuzzy area in the C standard, see http://goo.gl/ZpWeSE
@@ -104,7 +112,8 @@ struct Mallocator{
 			return true;
 		}
 
-		auto p = cast(ubyte*) pureRealloc(b.ptr, s);
+		/*auto p = cast(ubyte*) pureRealloc(b.ptr, s);*/
+        auto p = cast(ubyte*) realloc(b.ptr, s);
 		if (!p) return false;
 		b = p[0 .. s];
 		return true;
