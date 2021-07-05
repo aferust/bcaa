@@ -1,0 +1,10 @@
+# Editor config ripped from dlang repository : https://github.com/dlang/dlang.org/blob/master/.editorconfig
+root = true
+
+[*.{c,h,d,di,dd,ddoc}]
+end_of_line = lf
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+charset = utf-8
+
