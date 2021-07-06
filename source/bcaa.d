@@ -91,12 +91,6 @@ struct Mallocator{
 		return true;
 	}
 
-    static bool deallocate(void* b)@system @nogc nothrow pure{
-		import core.memory : pureFree;
-		pureFree(b);
-		return true;
-	}
-
 	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow pure{
 		import core.memory : pureRealloc;
 		if (!s){
@@ -129,7 +123,7 @@ void dispose(A, T)(auto ref A alloc, auto ref T[] array){
 }
 
 void dispose(A, T)(auto ref A alloc, auto ref T* p){
-    alloc.deallocate(cast(void*)p);
+    alloc.deallocate(p[0..1]);
 }
 
 /// mallocator code ENDS
@@ -434,11 +428,11 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         buckets = null;
     }
 
-    Bcaa!(K, V) copy() @nogc nothrow {
+    auto copy() @nogc nothrow {
         auto new_buckets = allocator.makeArray!Bucket(buckets.length);
         //cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
         memcpy(new_buckets.ptr, buckets.ptr, buckets.length * Bucket.sizeof);
-        Bcaa!(K, V) newAA;
+        typeof(this) newAA;
         newAA.buckets = new_buckets[0..buckets.length];
         newAA.firstUsed = firstUsed;
         newAA.used = used;

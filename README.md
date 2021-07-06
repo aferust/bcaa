@@ -1,10 +1,20 @@
 # bcaa
 Simple associative array implementation for D (-betterC). Actually, this is a simplified betterC port of druntime/blob/master/src/rt/aaA.d
  * betterC port of druntime/blob/master/src/rt/aaA
- * memory management using malloc and free.
+ * memory management using any memory allocator (pureMalloc-based one is default).
+
+## Use below subconfiguration for betterC in your dub.json
+```json
+"subConfigurations": {
+        "bcaa": "betterC"
+}
+```
 
 ## Examples:
 ```d
+    import bcaa;
+    import bcaa: Mallocator;
+
     import core.stdc.stdio;
     import core.stdc.time;
 
@@ -55,9 +65,11 @@ Simple associative array implementation for D (-betterC). Actually, this is a si
     printf("%s\n",aa1["Ferhat"].ptr);
 
     auto keys = aa1.keys;
+    scope(exit) Mallocator.instance.dispose(keys);
+
     foreach(key; keys)
         printf("%s -> %s \n", key.ptr, aa1[key].ptr);
-    core.stdc.stdlib.free(keys.ptr);
+
     aa1.free;
 
     struct Guitar {
