@@ -19,7 +19,7 @@ version(LDC){
     }
 }
 
-import std.experimental.allocator.common : stateSize;
+//import std.experimental.allocator.common : stateSize;
 
 import core.stdc.string;
 
@@ -74,25 +74,23 @@ private {
 // https://github.com/submada/basic_string/blob/main/src/basic_string/package.d:
 
 struct Mallocator{
-	import std.experimental.allocator.common : platformAlignment;
+	//import std.experimental.allocator.common : platformAlignment;
+    import core.stdc.stdlib: malloc, realloc, free;
 
-	enum uint alignment = platformAlignment;
+	//enum uint alignment = platformAlignment;
 
-	static void[] allocate(size_t bytes)@trusted @nogc nothrow pure{
-		import core.memory : pureMalloc;
+	static void[] allocate(size_t bytes)@trusted @nogc nothrow {
 		if (!bytes) return null;
-		auto p = pureMalloc(bytes);
+		auto p = malloc(bytes);
 		return p ? p[0 .. bytes] : null;
 	}
 
-	static bool deallocate(void[] b)@system @nogc nothrow pure{
-		import core.memory : pureFree;
-		pureFree(b.ptr);
+	static bool deallocate(void[] b)@system @nogc nothrow {
+		free(b.ptr);
 		return true;
 	}
 
-	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow pure{
-		import core.memory : pureRealloc;
+	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
 		if (!s){
 			// fuzzy area in the C standard, see http://goo.gl/ZpWeSE
 			// so just deallocate and nullify the pointer
@@ -101,7 +99,7 @@ struct Mallocator{
 			return true;
 		}
 
-		auto p = cast(ubyte*) pureRealloc(b.ptr, s);
+		auto p = cast(ubyte*) realloc(b.ptr, s);
 		if (!p) return false;
 		b = p[0 .. s];
 		return true;
@@ -160,8 +158,10 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     alias TKey = KeyType!K;
     TKey tkey;
+    
+    /+ causes linker errors
 
-    enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
+    //enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
     static if (hasStatelessAllocator)
     {
         alias allocator = Allocator.instance;
@@ -185,7 +185,8 @@ struct Bcaa(K, V, Allocator = Mallocator) {
           this.allocator = allocator;
         }
     }
-
+    +/
+    alias allocator = Allocator.instance;
 
     @property size_t length() const pure nothrow @nogc {
         //assert(used >= deleted);

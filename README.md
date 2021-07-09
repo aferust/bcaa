@@ -1,7 +1,7 @@
 # bcaa
 Simple associative array implementation for D (-betterC). Actually, this is a simplified betterC port of druntime/blob/master/src/rt/aaA.d
  * betterC port of druntime/blob/master/src/rt/aaA
- * memory management using any memory allocator (pureMalloc-based one is default).
+ * memory management using any memory allocator (malloc-based one is default).
 
 ## Use below subconfiguration for betterC in your dub.json
 ```json
