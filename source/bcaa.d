@@ -54,11 +54,12 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(scope const Key key) @nogc @safe nothrow pure {
+        @nogc nothrow pure:
+        static hash_t getHash(scope const Key key) @safe {
             return key.hashOf;
         }
 
-        static bool equals(scope const Key k1, scope const Key k2) @nogc nothrow pure {
+        static bool equals(scope const Key k1, scope const Key k2) {
             static if(is(K == const(char)*)){
                 return strlen(k1) == strlen(k2) &&
                     strcmp(k1, k2) == 0;
@@ -196,7 +197,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return used - deleted;
     }
 
-    private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
+    private Bucket[] allocHtable(size_t sz) @nogc nothrow {
         Bucket[] _htable = allocator.makeArray!(Bucket)(sz);
         _htable[] = Bucket.init;
         return _htable;
@@ -205,10 +206,10 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     private void initTableIfNeeded() @nogc nothrow {
         if(buckets is null){
             buckets = allocHtable(INIT_NUM_BUCKETS);
-            firstUsed = cast(uint)INIT_NUM_BUCKETS;
+            firstUsed = INIT_NUM_BUCKETS;
         }
-
     }
+
     @property size_t dim() const {
         return buckets.length;
     }
@@ -217,7 +218,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return dim - 1;
     }
 
-    inout(Bucket)* findSlotInsert(const size_t hash) inout pure nothrow @nogc {
+    inout(Bucket)* findSlotInsert(size_t hash) inout pure nothrow @nogc {
         for (size_t i = hash & mask, j = 1;; ++j){
             if (!buckets[i].filled)
                 return &buckets[i];
@@ -274,7 +275,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
             newNode.val = cast(V)val;
 
             p.entry = newNode;
-        }else{
+        } else {
             p.entry.key = key;
             p.entry.val = cast(V)val;
         }
@@ -286,7 +287,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return mix(hash) | HASH_FILLED_MARK;
     }
 
-    void resize(const size_t sz) @nogc nothrow {
+    void resize(size_t sz) @nogc nothrow {
         auto obuckets = buckets;
         buckets = allocHtable(sz);
 
@@ -344,7 +345,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     V get(scope const K key) @nogc nothrow {
-        if(auto ret = opBinaryRight!"in"(key))
+        if(auto ret = key in this)
             return *ret;
         return V.init;
     }
@@ -452,9 +453,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
-        int result = 0;
         if (buckets is null || buckets.length == 0)
             return 0;
+        int result = 0;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled)
                 continue;
@@ -468,9 +469,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     // for GC usages
     int opApply(int delegate(AAPair!(K, V)) dg) {
-        int result = 0;
         if (buckets is null || buckets.length == 0)
             return 0;
+        int result = 0;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled)
                 continue;
@@ -489,7 +490,7 @@ struct AAPair(K, V) {
     V* valp;
 }
 
-private size_t nextpow2(scope const size_t n) pure nothrow @nogc {
+private size_t nextpow2(size_t n) pure nothrow @nogc {
     import core.bitop : bsr;
 
     if (!n)
@@ -588,15 +589,18 @@ unittest {
 
 unittest {
     Bcaa!(string, int) aa;
+    scope(exit) aa.free;
     aa.foo = 1;
     aa.bar = 0;
     assert("foo" in aa);
     assert(aa.foo == 1);
 
-    Bcaa!(wstring, int) aa1;
-    aa1.bar = 2;
-    assert("bar" in aa1);
-    assert(aa1.bar == 2);
+    aa.clear;
+    assert("foo" !in aa);
+
+    aa.bar = 2;
+    assert("bar" in aa);
+    assert(aa.bar == 2);
 }
 
 // Test "in" works for AA without allocated storage.
