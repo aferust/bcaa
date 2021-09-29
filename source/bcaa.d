@@ -74,7 +74,7 @@ private {
 
 /// mallocator code BEGINS
 
-// based on std.experimental.allocator.mallocator and 
+// based on std.experimental.allocator.mallocator and
 // https://github.com/submada/basic_string/blob/main/src/basic_string/package.d:
 
 struct Mallocator {
@@ -89,9 +89,8 @@ struct Mallocator {
 		return p ? p[0 .. bytes] : null;
 	}
 
-	static bool deallocate(void[] b)@system @nogc nothrow {
+	static void deallocate(void[] b)@system @nogc nothrow {
 		free(b.ptr);
-		return true;
 	}
 
 	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
@@ -162,7 +161,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     alias TKey = KeyType!K;
     TKey tkey;
-    
+
     /+ causes linker errors
 
     //enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
@@ -192,7 +191,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     +/
     alias allocator = Allocator.instance;
 
-    @property size_t length() const pure nothrow @nogc {
+    @property size_t length() const {
         //assert(used >= deleted);
         return used - deleted;
     }
@@ -210,11 +209,11 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
 
     }
-    @property size_t dim() const pure nothrow @nogc {
+    @property size_t dim() const {
         return buckets.length;
     }
 
-    @property size_t mask() const pure nothrow @nogc {
+    @property size_t mask() const {
         return dim - 1;
     }
 
@@ -262,7 +261,10 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
 
         // update search cache and allocate entry
-        firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
+        uint m = cast(uint)(p - buckets.ptr);
+        if (m < firstUsed) {
+            firstUsed = m;
+        }
 
         p.hash = keyHash;
 
@@ -313,10 +315,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     void grow() @nogc nothrow {
-        if (length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM)
-            resize(dim);
-        else
-            resize(GROW_FAC * dim);
+        resize(length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM ? dim : GROW_FAC * dim);
     }
 
     void shrink() @nogc nothrow {
@@ -345,17 +344,26 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     V get(scope const K key) @nogc nothrow {
-        return opIndex(key);
-    }
-
-    V opIndex(scope const K key) @nogc nothrow {
         if(auto ret = opBinaryRight!"in"(key))
             return *ret;
         return V.init;
     }
 
+    alias opIndex = get;
+
     void opIndexAssign(scope const V value, scope const K key) @nogc nothrow {
         set(key, value);
+    }
+
+    static if(is(immutable K == immutable C[], C) &&
+        (is(C == char) || is(C == wchar) || is(C == dchar))) {
+        @property auto opDispatch(K key)() {
+            return opIndex(key);
+        }
+
+        @property auto opDispatch(K key)(scope const V value) {
+            return opIndexAssign(value, key);
+        }
     }
 
     V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
@@ -499,15 +507,8 @@ private size_t mix(size_t h) @safe pure nothrow @nogc {
     return h;
 }
 
-private T min(T)(scope const T a, scope const T b) pure nothrow @nogc {
-    return a < b ? a : b;
-}
-
-private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
-    return b < a ? a : b;
-}
-
-@nogc unittest {
+@nogc:
+unittest {
     import core.stdc.stdio;
     import core.stdc.time;
 
@@ -585,14 +586,27 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
     }
 }
 
+unittest {
+    Bcaa!(string, int) aa;
+    aa.foo = 1;
+    aa.bar = 0;
+    assert("foo" in aa);
+    assert(aa.foo == 1);
+
+    Bcaa!(wstring, int) aa1;
+    aa1.bar = 2;
+    assert("bar" in aa1);
+    assert(aa1.bar == 2);
+}
+
 // Test "in" works for AA without allocated storage.
-@nogc unittest {
+unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
 }
 
 // Try to force a memory leak - issue #5
-@nogc unittest {
+unittest {
     struct S {
         int x, y;
         string txt;
@@ -613,4 +627,3 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
         aas.remove(i);
     }
 }
-
