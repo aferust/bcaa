@@ -538,7 +538,7 @@ unittest {
         aa1["Asım Can"] = "Gündüz";
         aa1["Dan"] = "Patlansky";
         aa1["İlter"] = "Kurcala";
-        aa1["Ferhat"] = "Kurtulmuş";
+        aa1.Ferhat = "Kurtulmuş";
 
         foreach(pair; aa1){
             printf("%s -> %s", (*pair.keyp).ptr, (*pair.valp).ptr);
@@ -550,7 +550,7 @@ unittest {
             printf("does not exist!!!!\n");
 
         assert(aa1.remove("Ferhat") == true);
-        assert(aa1["Ferhat"] == null);
+        assert(aa1.Ferhat == null);
         assert(aa1.remove("Foe") == false);
         assert(aa1["İlter"] =="Kurcala");
 
@@ -558,7 +558,7 @@ unittest {
 
         printf("%s\n",aa1["Stevie"].ptr);
         printf("%s\n",aa1["Asım Can"].ptr);
-        printf("%s\n",aa1["Dan"].ptr);
+        printf("%s\n",aa1.Dan.ptr);
         printf("%s\n",aa1["Ferhat"].ptr);
 
         auto keys = aa1.keys;

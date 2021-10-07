@@ -33,7 +33,7 @@ extern(C) void main() @nogc
     aa1["Asım Can"] = "Gündüz";
     aa1["Dan"] = "Patlansky";
     aa1["İlter"] = "Kurcala";
-    aa1["Ferhat"] = "Kurtulmuş";
+    aa1.Ferhat = "Kurtulmuş";
 
     foreach(pair; aa1){
       printf("%s -> %s", (*pair.keyp).ptr, (*pair.valp).ptr);
@@ -42,7 +42,7 @@ extern(C) void main() @nogc
     if (auto valptr = "Dan" in aa1)
       printf("%s exists!!!!\n", (*valptr).ptr );
     else
-      printf("does not exist!!!!\n".ptr);
+      printf("does not exist!!!!\n");
 
     /+
     assert(aa1.remove("Ferhat") == true);
@@ -54,7 +54,7 @@ extern(C) void main() @nogc
 
     printf("%s\n",aa1["Stevie"].ptr);
     printf("%s\n",aa1["Asım Can"].ptr);
-    printf("%s\n",aa1["Dan"].ptr);
+    printf("%s\n",aa1.Dan.ptr);
     //printf("%s\n",aa1["Ferhat"].ptr);
 
     auto keys = aa1.keys;
@@ -111,4 +111,3 @@ extern(C) void main() @nogc
     }
   }
 }
-
