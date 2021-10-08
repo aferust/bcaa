@@ -22,27 +22,31 @@ version(LDC){
 //import std.experimental.allocator.common : stateSize;
 
 import core.stdc.string;
-
-// grow threshold
-private enum GROW_NUM = 4;
-private enum GROW_DEN = 5;
-// shrink threshold
-private enum SHRINK_NUM = 1;
-private enum SHRINK_DEN = 8;
-// grow factor
-private enum GROW_FAC = 4;
+private enum {
+    // grow threshold
+    GROW_NUM = 4,
+    GROW_DEN = 5,
+    // shrink threshold
+    SHRINK_NUM = 1,
+    SHRINK_DEN = 8,
+    // grow factor
+    GROW_FAC = 4
+}
 // growing the AA doubles it's size, so the shrink threshold must be
 // smaller than half the grow threshold to have a hysteresis
 static assert(GROW_FAC * SHRINK_NUM * GROW_DEN < GROW_NUM * SHRINK_DEN);
-// initial load factor (for literals), mean of both thresholds
-private enum INIT_NUM = (GROW_DEN * SHRINK_NUM + GROW_NUM * SHRINK_DEN) / 2;
-private enum INIT_DEN = SHRINK_DEN * GROW_DEN;
 
-private enum INIT_NUM_BUCKETS = 8;
-// magic hash constants to distinguish empty, deleted, and filled buckets
-private enum HASH_EMPTY = 0;
-private enum HASH_DELETED = 0x1;
-private enum HASH_FILLED_MARK = size_t(1) << 8 * size_t.sizeof - 1;
+private enum {
+    // initial load factor (for literals), mean of both thresholds
+    INIT_NUM = (GROW_DEN * SHRINK_NUM + GROW_NUM * SHRINK_DEN) / 2,
+    INIT_DEN = SHRINK_DEN * GROW_DEN,
+
+    INIT_NUM_BUCKETS = 8,
+    // magic hash constants to distinguish empty, deleted, and filled buckets
+    HASH_EMPTY = 0,
+    HASH_DELETED = 0x1,
+    HASH_FILLED_MARK = size_t(1) << 8 * size_t.sizeof - 1
+}
 
 private {
     alias hash_t = size_t;
@@ -50,11 +54,12 @@ private {
     struct KeyType(K){
         alias Key = K;
 
-        static hash_t getHash(scope const Key key) @nogc @safe nothrow pure {
+        @nogc nothrow pure:
+        static hash_t getHash(scope const Key key) @safe {
             return key.hashOf;
         }
 
-        static bool equals(scope const Key k1, scope const Key k2) @nogc nothrow pure {
+        static bool equals(scope const Key k1, scope const Key k2) {
             static if(is(K == const(char)*)){
                 return strlen(k1) == strlen(k2) &&
                     strcmp(k1, k2) == 0;
@@ -70,10 +75,10 @@ private {
 
 /// mallocator code BEGINS
 
-// based on std.experimental.allocator.mallocator and 
+// based on std.experimental.allocator.mallocator and
 // https://github.com/submada/basic_string/blob/main/src/basic_string/package.d:
 
-struct Mallocator{
+struct Mallocator {
 	//import std.experimental.allocator.common : platformAlignment;
     import core.stdc.stdlib: malloc, realloc, free;
 
@@ -85,9 +90,8 @@ struct Mallocator{
 		return p ? p[0 .. bytes] : null;
 	}
 
-	static bool deallocate(void[] b)@system @nogc nothrow {
+	static void deallocate(void[] b)@system @nogc nothrow {
 		free(b.ptr);
-		return true;
 	}
 
 	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
@@ -113,7 +117,7 @@ T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length){
 }
 
 T* make(T, Allocator)(auto ref Allocator alloc){
-    return cast(T*)(alloc.allocate(T.sizeof).ptr);
+    return cast(T*)alloc.allocate(T.sizeof).ptr;
 }
 
 void dispose(A, T)(auto ref A alloc, auto ref T[] array){
@@ -137,15 +141,15 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     private pure nothrow @nogc:
         size_t hash;
         Node* entry;
-        @property bool empty() const @nogc nothrow {
+        @property bool empty() const {
             return hash == HASH_EMPTY;
         }
 
-        @property bool deleted() const @nogc nothrow {
+        @property bool deleted() const {
             return hash == HASH_DELETED;
         }
 
-        @property bool filled() const @safe @nogc nothrow {
+        @property bool filled() const {
             return cast(ptrdiff_t) hash < 0;
         }
     }
@@ -158,7 +162,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     alias TKey = KeyType!K;
     TKey tkey;
-    
+
     /+ causes linker errors
 
     //enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
@@ -188,12 +192,12 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     +/
     alias allocator = Allocator.instance;
 
-    @property size_t length() const pure nothrow @nogc {
+    @property size_t length() const {
         //assert(used >= deleted);
         return used - deleted;
     }
 
-    private Bucket[] allocHtable(scope const size_t sz) @nogc nothrow {
+    private Bucket[] allocHtable(size_t sz) @nogc nothrow {
         Bucket[] _htable = allocator.makeArray!(Bucket)(sz);
         _htable[] = Bucket.init;
         return _htable;
@@ -202,19 +206,19 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     private void initTableIfNeeded() @nogc nothrow {
         if(buckets is null){
             buckets = allocHtable(INIT_NUM_BUCKETS);
-            firstUsed = cast(uint)INIT_NUM_BUCKETS;
+            firstUsed = INIT_NUM_BUCKETS;
         }
-
     }
-    @property size_t dim() const pure nothrow @nogc {
+
+    @property size_t dim() const {
         return buckets.length;
     }
 
-    @property size_t mask() const pure nothrow @nogc {
+    @property size_t mask() const {
         return dim - 1;
     }
 
-    inout(Bucket)* findSlotInsert(const size_t hash) inout pure nothrow @nogc {
+    inout(Bucket)* findSlotInsert(size_t hash) inout pure nothrow @nogc {
         for (size_t i = hash & mask, j = 1;; ++j){
             if (!buckets[i].filled)
                 return &buckets[i];
@@ -229,7 +233,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 return &buckets[i];
             }
 
-            else if (buckets[i].empty)
+            if (buckets[i].empty)
                 return null;
             i = (i + j) & mask;
         }
@@ -258,17 +262,20 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
 
         // update search cache and allocate entry
-        firstUsed = min(firstUsed, cast(uint)(p - buckets.ptr));
+        uint m = cast(uint)(p - buckets.ptr);
+        if (m < firstUsed) {
+            firstUsed = m;
+        }
 
         p.hash = keyHash;
 
-        if(!p.deleted){
+        if (!p.deleted){
             Node* newNode = allocator.make!Node();
             newNode.key = key;
             newNode.val = cast(V)val;
 
             p.entry = newNode;
-        }else{
+        } else {
             p.entry.key = key;
             p.entry.val = cast(V)val;
         }
@@ -280,7 +287,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return mix(hash) | HASH_FILLED_MARK;
     }
 
-    void resize(const size_t sz) @nogc nothrow {
+    void resize(size_t sz) @nogc nothrow {
         auto obuckets = buckets;
         buckets = allocHtable(sz);
 
@@ -309,10 +316,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     void grow() @nogc nothrow {
-        if (length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM)
-            resize(dim);
-        else
-            resize(GROW_FAC * dim);
+        resize(length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM ? dim : GROW_FAC * dim);
     }
 
     void shrink() @nogc nothrow {
@@ -341,17 +345,26 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     V get(scope const K key) @nogc nothrow {
-        return opIndex(key);
-    }
-
-    V opIndex(scope const K key) @nogc nothrow {
-        if(auto ret = opBinaryRight!"in"(key))
+        if(auto ret = key in this)
             return *ret;
         return V.init;
     }
 
+    alias opIndex = get;
+
     void opIndexAssign(scope const V value, scope const K key) @nogc nothrow {
         set(key, value);
+    }
+
+    static if(is(immutable K == immutable C[], C) &&
+        (is(C == char) || is(C == wchar) || is(C == dchar))) {
+        @property auto opDispatch(K key)() {
+            return opIndex(key);
+        }
+
+        @property auto opDispatch(K key)(scope const V value) {
+            return opIndexAssign(value, key);
+        }
     }
 
     V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
@@ -373,10 +386,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         //(cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
-            if (!b.filled){
-                continue;
+            if (b.filled){
+                ks[j++] = b.entry.key;
             }
-            ks[j++] = b.entry.key;
         }
 
         return ks;
@@ -388,10 +400,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         //(cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
-            if (!b.filled){
-                continue;
+            if (b.filled){
+                vals[j++] = b.entry.val;
             }
-            vals[j++] = b.entry.val;
         }
 
         return vals;
@@ -442,9 +453,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
-        int result = 0;
         if (buckets is null || buckets.length == 0)
             return 0;
+        int result = 0;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled)
                 continue;
@@ -458,9 +469,9 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     // for GC usages
     int opApply(int delegate(AAPair!(K, V)) dg) {
-        int result = 0;
         if (buckets is null || buckets.length == 0)
             return 0;
+        int result = 0;
         foreach (ref b; buckets[firstUsed .. $]){
             if (!b.filled)
                 continue;
@@ -479,7 +490,7 @@ struct AAPair(K, V) {
     V* valp;
 }
 
-private size_t nextpow2(scope const size_t n) pure nothrow @nogc {
+private size_t nextpow2(size_t n) pure nothrow @nogc {
     import core.bitop : bsr;
 
     if (!n)
@@ -497,15 +508,8 @@ private size_t mix(size_t h) @safe pure nothrow @nogc {
     return h;
 }
 
-private T min(T)(scope const T a, scope const T b) pure nothrow @nogc {
-    return a < b ? a : b;
-}
-
-private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
-    return b < a ? a : b;
-}
-
-@nogc unittest {
+@nogc:
+unittest {
     import core.stdc.stdio;
     import core.stdc.time;
 
@@ -522,9 +526,9 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
             aa0.remove(i);
         }
 
-        printf("%d \n", aa0[1000]);
+        printf("%d\n", aa0[1000]);
     }
-    clock_t end = clock(); printf("Elapsed time: %f \n", cast(double)(end - begin) / CLOCKS_PER_SEC);
+    clock_t end = clock(); printf("Elapsed time: %f \n", double(end - begin) / CLOCKS_PER_SEC);
 
     {
         Bcaa!(string, string) aa1;
@@ -534,7 +538,7 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
         aa1["Asım Can"] = "Gündüz";
         aa1["Dan"] = "Patlansky";
         aa1["İlter"] = "Kurcala";
-        aa1["Ferhat"] = "Kurtulmuş";
+        aa1.Ferhat = "Kurtulmuş";
 
         foreach(pair; aa1){
             printf("%s -> %s", (*pair.keyp).ptr, (*pair.valp).ptr);
@@ -543,10 +547,10 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
         if (auto valptr = "Dan" in aa1)
             printf("%s exists!!!!\n", (*valptr).ptr );
         else
-            printf("does not exist!!!!\n".ptr);
+            printf("does not exist!!!!\n");
 
         assert(aa1.remove("Ferhat") == true);
-        assert(aa1["Ferhat"] == null);
+        assert(aa1.Ferhat == null);
         assert(aa1.remove("Foe") == false);
         assert(aa1["İlter"] =="Kurcala");
 
@@ -554,13 +558,13 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
 
         printf("%s\n",aa1["Stevie"].ptr);
         printf("%s\n",aa1["Asım Can"].ptr);
-        printf("%s\n",aa1["Dan"].ptr);
+        printf("%s\n",aa1.Dan.ptr);
         printf("%s\n",aa1["Ferhat"].ptr);
 
         auto keys = aa1.keys;
-        scope(exit) Mallocator.instance.dispose(keys);
+        scope(exit) aa1.allocator.dispose(keys);
         foreach(key; keys)
-            printf("%s -> %s \n", key.ptr, aa1[key].ptr);
+            printf("%s -> %s\n", key.ptr, aa1[key].ptr);
         //core.stdc.stdlib.free(keys.ptr);
 
         struct Guitar {
@@ -576,25 +580,39 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
 
         assert(guitars[3].brand == "Gibson");
 
-        printf("%s \n", guitars[356].brand.ptr);
+        printf("%s\n", guitars[356].brand.ptr);
 
         if(auto valPtr = 3 in guitars)
-            printf("%s \n", (*valPtr).brand.ptr);
+            printf("%s\n", (*valPtr).brand.ptr);
     }
 }
 
+unittest {
+    Bcaa!(string, int) aa;
+    scope(exit) aa.free;
+    aa.foo = 1;
+    aa.bar = 0;
+    assert("foo" in aa);
+    assert(aa.foo == 1);
+
+    aa.clear;
+    assert("foo" !in aa);
+
+    aa.bar = 2;
+    assert("bar" in aa);
+    assert(aa.bar == 2);
+}
+
 // Test "in" works for AA without allocated storage.
-@nogc unittest {
+unittest {
     Bcaa!(int, int) emptyMap;
     assert(0 !in emptyMap);
-
 }
 
 // Try to force a memory leak - issue #5
-@nogc unittest {
+unittest {
     struct S {
-        int x;
-        int y;
+        int x, y;
         string txt;
     }
 
@@ -613,4 +631,3 @@ private T max(T)(scope const T a, scope const T b) pure nothrow @nogc {
         aas.remove(i);
     }
 }
-
