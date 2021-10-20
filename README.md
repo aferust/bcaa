@@ -70,6 +70,13 @@ Simple associative array implementation for D (-betterC). Actually, this is a si
     foreach(key; keys)
         printf("%s -> %s \n", key.ptr, aa1[key].ptr);
 
+    // byKey, byValue, and byKeyValue do not allocate
+    // They use the range magic of D
+    foreach (pp; aa1.byKeyValue()){ 
+        printf("%s: %s\n", pp.key.ptr, pp.value.ptr);
+        
+    }
+    
     aa1.free;
 
     struct Guitar {
