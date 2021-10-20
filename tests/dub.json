@@ -10,7 +10,6 @@
     "importPaths": ["./"],
     "sourcePaths": ["./"],
     "dflags": ["-betterC"],
-    "dflags-ldc": ["-fsanitize=address"],
     "dependencies": {
       "bcaa": {"version": "*", "path": "../"}
     }
