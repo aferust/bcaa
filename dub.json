@@ -6,7 +6,7 @@
     "description": "Simple associative array implementation for D (-betterC)",
     "license": "boost",
     "name": "bcaa",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "importPaths": ["source"],
     "sourcePaths": ["source"],
     "configurations": [

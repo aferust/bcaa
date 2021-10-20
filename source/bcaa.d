@@ -135,6 +135,8 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     struct Node{
         K key;
         V val;
+
+        alias value = val;
     }
 
     struct Bucket {
@@ -163,33 +165,6 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     alias TKey = KeyType!K;
     TKey tkey;
 
-    /+ causes linker errors
-
-    //enum bool hasStatelessAllocator = (stateSize!Allocator == 0);
-    static if (hasStatelessAllocator)
-    {
-        alias allocator = Allocator.instance;
-
-    } else {
-        private Allocator allocator;
-
-        /// No default construction if an allocator must be provided.
-        this() @disable;
-
-        /**
-        * Use the given `allocator` for allocations.
-        */
-        this(Allocator allocator)
-        in
-        {
-          assert(allocator !is null, "Allocator must not be null");
-        }
-        do
-        {
-          this.allocator = allocator;
-        }
-    }
-    +/
     alias allocator = Allocator.instance;
 
     @property size_t length() const {
@@ -296,7 +271,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 *findSlotInsert(b.hash) = b;
             if (b.empty || b.deleted){
                 allocator.dispose(b.entry);
-                //core.stdc.stdlib.free(b.entry);
+                
                 b.entry = null;
             }
 
@@ -306,7 +281,6 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         used -= deleted;
         deleted = 0;
 
-        //core.stdc.stdlib.free(obuckets.ptr);
         allocator.dispose(obuckets.ptr);
     }
 
@@ -332,8 +306,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         if (auto p = findSlotLookup(hash, key)){
             // clear entry
             p.hash = HASH_DELETED;
-            //core.stdc.stdlib.free(p.entry);
-            //p.entry = null;
+            // just mark it to be disposed
 
             ++deleted;
             if (length * SHRINK_DEN < dim * SHRINK_NUM)
@@ -380,7 +353,8 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         static assert(0, "Operator "~op~" not implemented");
     }
 
-    /// returning slice must be deallocated like free(keys.ptr);
+    /// returning slice must be deallocated like Allocator.dispose(keys);
+    // use byKeyValue to avoid extra allocations
     K[] keys() @nogc nothrow {
         K[] ks = allocator.makeArray!K(length);
         //(cast(K*)malloc(length * K.sizeof))[0..length];
@@ -394,10 +368,10 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return ks;
     }
 
-    /// returning slice must be deallocated like free(values.ptr);
+    /// returning slice must be deallocated like Allocator.dispose(values);
+    // use byKeyValue to avoid extra allocations
     V[] values() @nogc nothrow {
         V[] vals = allocator.makeArray!V(length);
-        //(cast(V*)malloc(length * V.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (b.filled){
@@ -452,6 +426,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return newAA;
     }
 
+    // opApply will be deprecated. Use byKeyValue instead
     int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
         if (buckets is null || buckets.length == 0)
             return 0;
@@ -468,6 +443,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     // for GC usages
+    // opApply will be deprecated. Use byKeyValue instead
     int opApply(int delegate(AAPair!(K, V)) dg) {
         if (buckets is null || buckets.length == 0)
             return 0;
@@ -482,7 +458,87 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
         return 0;
     }
-    // TODO: .byKey(), .byValue(), .byKeyValue() ???
+    
+    private enum RangeType{
+        KEYS,
+        VALUES,
+        BOTH
+    }
+
+    struct BCAARange(B, alias rangeType) {
+        B* bucks;
+        size_t len;
+        size_t current;
+        
+        nothrow @nogc:
+
+        bool empty(){
+            if (len == 0)
+                return true;
+            return false;
+        }
+
+        // front must be called first before popFront
+        auto front(){
+            next();
+            static if(rangeType == RangeType.BOTH){
+                auto ret = Node((*bucks)[current].entry.key, (*bucks)[current].entry.val);
+            } else
+            static if(rangeType == RangeType.KEYS){
+                auto ret = (*bucks)[current].entry.key;
+            } else
+            static if(rangeType == RangeType.VALUES){
+                auto ret = (*bucks)[current].entry.val;
+            }
+            
+            return ret;
+        }
+        
+        void popFront(){
+            foreach (i, ref b; (*bucks)[current .. $]){
+                if (!b.empty){
+                    --len;
+                    ++current;
+                    break;
+                }
+            }
+        }
+
+        private void next(){
+            while(!(*bucks)[current].filled || (*bucks)[current].empty){
+                current++;
+            }
+        }
+    }
+
+    // The following functions return an InputRange
+
+    auto byKeyValue() nothrow @nogc {
+        size_t current = firstUsed;
+        auto len = length;
+
+        typeof(buckets)* bucks = &buckets;
+
+        return BCAARange!(typeof(buckets), RangeType.BOTH)(bucks, len, current);
+    }
+
+    auto byKey() nothrow @nogc {
+        size_t current = firstUsed;
+        auto len = length;
+
+        typeof(buckets)* bucks = &buckets;
+
+        return BCAARange!(typeof(buckets), RangeType.KEYS)(bucks, len, current);
+    }
+
+    auto byValue() nothrow @nogc {
+        size_t current = firstUsed;
+        auto len = length;
+
+        typeof(buckets)* bucks = &buckets;
+
+        return BCAARange!(typeof(buckets), RangeType.VALUES)(bucks, len, current);
+    }
 }
 
 struct AAPair(K, V) {
@@ -565,7 +621,13 @@ unittest {
         scope(exit) aa1.allocator.dispose(keys);
         foreach(key; keys)
             printf("%s -> %s\n", key.ptr, aa1[key].ptr);
-        //core.stdc.stdlib.free(keys.ptr);
+        
+        // byKey, byValue, and byKeyValue do not allocate
+        // They use the range magic of D
+        foreach (pp; aa1.byKeyValue()){ 
+            printf("%s: %s\n", pp.key.ptr, pp.value.ptr);
+            
+        }
 
         struct Guitar {
             string brand;
