@@ -357,7 +357,6 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     // use byKeyValue to avoid extra allocations
     K[] keys() @nogc nothrow {
         K[] ks = allocator.makeArray!K(length);
-        //(cast(K*)malloc(length * K.sizeof))[0..length];
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
             if (b.filled){
