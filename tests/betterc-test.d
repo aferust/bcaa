@@ -1,7 +1,6 @@
 module betterc_test;
 
 import bcaa;
-import bcaa: Mallocator;
 
 import core.stdc.stdio;
 import core.stdc.time;

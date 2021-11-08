@@ -51,6 +51,8 @@ private enum {
 private {
     alias hash_t = size_t;
 
+    enum isSomeString(T) = is(immutable T == immutable C[], C) && (is(C == char) || is(C == wchar) || is(C == dchar));
+
     struct KeyType(K){
         alias Key = K;
 
@@ -63,9 +65,9 @@ private {
             static if(is(K == const(char)*)){
                 return strlen(k1) == strlen(k2) &&
                     strcmp(k1, k2) == 0;
-            } else static if(is(K == string)){
-                return strlen(k1.ptr) == strlen(k2.ptr) &&
-                    strcmp(k1.ptr, k2.ptr) == 0;
+            } else static if(isSomeString!K){
+                size_t len = k1.length;
+                return len == k2.length && strncmp(k1.ptr, k2.ptr, len) == 0;
             } else {
                 return k1 == k2;
             }
@@ -79,37 +81,37 @@ private {
 // https://github.com/submada/basic_string/blob/main/src/basic_string/package.d:
 
 struct Mallocator {
-	//import std.experimental.allocator.common : platformAlignment;
+    //import std.experimental.allocator.common : platformAlignment;
     import core.stdc.stdlib: malloc, realloc, free;
 
-	//enum uint alignment = platformAlignment;
+    //enum uint alignment = platformAlignment;
 
-	static void[] allocate(size_t bytes)@trusted @nogc nothrow {
-		if (!bytes) return null;
-		auto p = malloc(bytes);
-		return p ? p[0 .. bytes] : null;
-	}
+    static void[] allocate(size_t bytes)@trusted @nogc nothrow {
+        if (!bytes) return null;
+        auto p = malloc(bytes);
+        return p ? p[0 .. bytes] : null;
+    }
 
-	static void deallocate(void[] b)@system @nogc nothrow {
-		free(b.ptr);
-	}
+    static void deallocate(void[] b)@system @nogc nothrow {
+        free(b.ptr);
+    }
 
-	static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
-		if (!s){
-			// fuzzy area in the C standard, see http://goo.gl/ZpWeSE
-			// so just deallocate and nullify the pointer
-			deallocate(b);
-			b = null;
-			return true;
-		}
+    static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
+        if (!s){
+            // fuzzy area in the C standard, see http://goo.gl/ZpWeSE
+            // so just deallocate and nullify the pointer
+            deallocate(b);
+            b = null;
+            return true;
+        }
 
-		auto p = cast(ubyte*) realloc(b.ptr, s);
-		if (!p) return false;
-		b = p[0 .. s];
-		return true;
-	}
+        auto p = cast(ubyte*) realloc(b.ptr, s);
+        if (!p) return false;
+        b = p[0 .. s];
+        return true;
+    }
 
-	static Mallocator instance;
+    static Mallocator instance;
 }
 
 T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length){
@@ -271,7 +273,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 *findSlotInsert(b.hash) = b;
             if (b.empty || b.deleted){
                 allocator.dispose(b.entry);
-                
+
                 b.entry = null;
             }
 
@@ -329,8 +331,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         set(key, value);
     }
 
-    static if(is(immutable K == immutable C[], C) &&
-        (is(C == char) || is(C == wchar) || is(C == dchar))) {
+    static if(isSomeString!K) {
         @property auto opDispatch(K key)() {
             return opIndex(key);
         }
@@ -457,7 +458,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
         return 0;
     }
-    
+
     private enum RangeType{
         KEYS,
         VALUES,
@@ -468,7 +469,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         B* bucks;
         size_t len;
         size_t current;
-        
+
         nothrow @nogc:
 
         bool empty(){
@@ -489,10 +490,10 @@ struct Bcaa(K, V, Allocator = Mallocator) {
             static if(rangeType == RangeType.VALUES){
                 auto ret = (*bucks)[current].entry.val;
             }
-            
+
             return ret;
         }
-        
+
         void popFront(){
             foreach (i, ref b; (*bucks)[current .. $]){
                 if (!b.empty){
@@ -563,6 +564,14 @@ private size_t mix(size_t h) @safe pure nothrow @nogc {
     return h;
 }
 
+unittest
+{
+    Bcaa!(string, string) aa;
+    scope(exit) aa.free;
+    aa["foo".idup] = "bar";
+    assert(aa.foo == "bar");
+}
+
 @nogc:
 unittest {
     import core.stdc.stdio;
@@ -620,12 +629,12 @@ unittest {
         scope(exit) aa1.allocator.dispose(keys);
         foreach(key; keys)
             printf("%s -> %s\n", key.ptr, aa1[key].ptr);
-        
+
         // byKey, byValue, and byKeyValue do not allocate
         // They use the range magic of D
-        foreach (pp; aa1.byKeyValue()){ 
+        foreach (pp; aa1.byKeyValue()){
             printf("%s: %s\n", pp.key.ptr, pp.value.ptr);
-            
+
         }
 
         struct Guitar {

@@ -21,8 +21,7 @@
         },
         {
             "name": "unittest",
-            "targetType": "library",
-            "dflags-ldc": ["-fsanitize=address"]
+            "targetType": "library"
         }
     ]
 }
