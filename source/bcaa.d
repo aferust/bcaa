@@ -53,20 +53,20 @@ private {
 
     enum isSomeString(T) = is(immutable T == immutable C[], C) && (is(C == char) || is(C == wchar) || is(C == dchar));
 
-    struct KeyType(K){
+    template KeyType(K){
         alias Key = K;
 
         @nogc nothrow pure:
-        static hash_t getHash(scope const Key key) @safe {
+        hash_t getHash(scope const Key key) @safe {
             return key.hashOf;
         }
 
-        static bool equals(scope const Key k1, scope const Key k2) {
+        bool equals(scope const Key k1, scope const Key k2) {
             static if(is(K == const(char)*)){
                 return strlen(k1) == strlen(k2) &&
                     strcmp(k1, k2) == 0;
             } else static if(isSomeString!K){
-                size_t len = k1.length;
+                const len = k1.length;
                 return len == k2.length && strncmp(k1.ptr, k2.ptr, len) == 0;
             } else {
                 return k1 == k2;
@@ -165,7 +165,6 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     uint deleted;
 
     alias TKey = KeyType!K;
-    TKey tkey;
 
     alias allocator = Allocator.instance;
 
@@ -174,15 +173,15 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return used - deleted;
     }
 
-    private Bucket[] allocHtable(size_t sz) @nogc nothrow {
-        Bucket[] _htable = allocator.makeArray!(Bucket)(sz);
+    private void allocHtable(size_t sz) @nogc nothrow {
+        Bucket[] _htable = allocator.makeArray!Bucket(sz);
         _htable[] = Bucket.init;
-        return _htable;
+        buckets =  _htable;
     }
 
     private void initTableIfNeeded() @nogc nothrow {
-        if(buckets is null){
-            buckets = allocHtable(INIT_NUM_BUCKETS);
+        if (buckets is null) {
+            allocHtable(INIT_NUM_BUCKETS);
             firstUsed = INIT_NUM_BUCKETS;
         }
     }
@@ -206,9 +205,8 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     inout(Bucket)* findSlotLookup(size_t hash, scope const K key) inout nothrow @nogc {
         for (size_t i = hash & mask, j = 1;; ++j){
 
-            if (buckets[i].hash == hash && tkey.equals(key, buckets[i].entry.key)){
+            if (buckets[i].hash == hash && TKey.equals(key, buckets[i].entry.key))
                 return &buckets[i];
-            }
 
             if (buckets[i].empty)
                 return null;
@@ -219,7 +217,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     void set(scope const K key, scope const V val) @nogc nothrow {
         initTableIfNeeded();
 
-        immutable keyHash = calcHash(key);
+        const keyHash = calcHash(key);
 
         if (auto p = findSlotLookup(keyHash, key)){
             p.entry.val = cast(V)val;
@@ -260,13 +258,13 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     private size_t calcHash(scope const K pkey) pure @nogc nothrow {
         // highest bit is set to distinguish empty/deleted from filled buckets
-        immutable hash = tkey.getHash(pkey);
+        const hash = TKey.getHash(pkey);
         return mix(hash) | HASH_FILLED_MARK;
     }
 
     void resize(size_t sz) @nogc nothrow {
         auto obuckets = buckets;
-        buckets = allocHtable(sz);
+        allocHtable(sz);
 
         foreach (ref b; obuckets[firstUsed .. $]){
             if (b.filled)
@@ -304,7 +302,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         if (!length)
             return false;
 
-        immutable hash = calcHash(key);
+        const hash = calcHash(key);
         if (auto p = findSlotLookup(hash, key)){
             // clear entry
             p.hash = HASH_DELETED;
@@ -341,17 +339,14 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
     }
 
-    V* opBinaryRight(string op)(scope const K key) @nogc nothrow {
-        static if (op == "in"){
-            if (!length)
-                return null;
-
-            immutable keyHash = calcHash(key);
-            if (auto buck = findSlotLookup(keyHash, key))
-                return &buck.entry.val;
+    V* opBinaryRight(string op)(scope const K key) @nogc nothrow if (op == "in") {
+        if (!length)
             return null;
-        } else
-        static assert(0, "Operator "~op~" not implemented");
+
+        const keyHash = calcHash(key);
+        if (auto buck = findSlotLookup(keyHash, key))
+            return &buck.entry.val;
+        return null;
     }
 
     /// returning slice must be deallocated like Allocator.dispose(keys);
