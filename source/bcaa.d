@@ -86,17 +86,23 @@ struct Mallocator {
 
     //enum uint alignment = platformAlignment;
 
-    static void[] allocate(size_t bytes)@trusted @nogc nothrow {
+static:
+
+    void[] allocate(size_t bytes) @trusted @nogc nothrow {
         if (!bytes) return null;
         auto p = malloc(bytes);
         return p ? p[0 .. bytes] : null;
     }
 
-    static void deallocate(void[] b)@system @nogc nothrow {
+    void deallocate(void[] b) @system @nogc nothrow {
         free(b.ptr);
     }
 
-    static bool reallocate(ref void[] b, size_t s)@system @nogc nothrow {
+    alias
+        deallocate = free,
+        dispose = deallocate;
+
+    bool reallocate(ref void[] b, size_t s) @system @nogc nothrow {
         if (!s){
             // fuzzy area in the C standard, see http://goo.gl/ZpWeSE
             // so just deallocate and nullify the pointer
@@ -111,7 +117,7 @@ struct Mallocator {
         return true;
     }
 
-    static Mallocator instance;
+    Mallocator instance;
 }
 
 T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length){
@@ -120,14 +126,6 @@ T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length){
 
 T* make(T, Allocator)(auto ref Allocator alloc){
     return cast(T*)alloc.allocate(T.sizeof).ptr;
-}
-
-void dispose(A, T)(auto ref A alloc, auto ref T[] array){
-    alloc.deallocate(cast(void[])array);
-}
-
-void dispose(A, T)(auto ref A alloc, auto ref T* p){
-    alloc.deallocate(p[0..1]);
 }
 
 /// mallocator code ENDS
@@ -142,7 +140,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
     }
 
     struct Bucket {
-    private pure nothrow @nogc:
+    private pure nothrow @nogc @safe:
         size_t hash;
         Node* entry;
         @property bool empty() const {
@@ -158,8 +156,23 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
     }
 
-    private Bucket[] buckets;
+private:
+    Bucket[] buckets;
 
+    void allocHtable(size_t sz) @nogc nothrow {
+        auto _htable = allocator.makeArray!Bucket(sz);
+        _htable[] = Bucket.init;
+        buckets = _htable;
+    }
+
+    void initTableIfNeeded() @nogc nothrow {
+        if (buckets is null) {
+            allocHtable(INIT_NUM_BUCKETS);
+            firstUsed = INIT_NUM_BUCKETS;
+        }
+    }
+
+public:
     uint firstUsed;
     uint used;
     uint deleted;
@@ -168,33 +181,40 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     alias allocator = Allocator.instance;
 
-    @property size_t length() const {
-        //assert(used >= deleted);
-        return used - deleted;
+    // for GC usages
+    // opApply will be deprecated. Use byKeyValue instead
+    int opApply(int delegate(AAPair!(K, V)) dg) {
+        if (buckets is null || buckets.length == 0)
+            return 0;
+        int result = 0;
+        foreach (ref b; buckets[firstUsed .. $]){
+            if (!b.filled)
+                continue;
+            result = dg(AAPair!(K, V)(&b.entry.key, &b.entry.val));
+            if (result) {
+                break;
+            }
+        }
+        return 0;
     }
 
-    private void allocHtable(size_t sz) @nogc nothrow {
-        Bucket[] _htable = allocator.makeArray!Bucket(sz);
-        _htable[] = Bucket.init;
-        buckets =  _htable;
-    }
+@nogc nothrow:
+    @property pure @safe {
+        size_t length() const
+        in(used >= deleted) {
+            return used - deleted;
+        }
 
-    private void initTableIfNeeded() @nogc nothrow {
-        if (buckets is null) {
-            allocHtable(INIT_NUM_BUCKETS);
-            firstUsed = INIT_NUM_BUCKETS;
+        size_t dim() const {
+            return buckets.length;
+        }
+
+        size_t mask() const {
+            return dim - 1;
         }
     }
 
-    @property size_t dim() const {
-        return buckets.length;
-    }
-
-    @property size_t mask() const {
-        return dim - 1;
-    }
-
-    inout(Bucket)* findSlotInsert(size_t hash) inout pure nothrow @nogc {
+    inout(Bucket)* findSlotInsert(size_t hash) inout pure {
         for (size_t i = hash & mask, j = 1;; ++j){
             if (!buckets[i].filled)
                 return &buckets[i];
@@ -202,7 +222,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
     }
 
-    inout(Bucket)* findSlotLookup(size_t hash, scope const K key) inout nothrow @nogc {
+    inout(Bucket)* findSlotLookup(size_t hash, scope const K key) inout {
         for (size_t i = hash & mask, j = 1;; ++j){
 
             if (buckets[i].hash == hash && TKey.equals(key, buckets[i].entry.key))
@@ -214,7 +234,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         }
     }
 
-    void set(scope const K key, scope const V val) @nogc nothrow {
+    void set(scope const K key, scope const V val) {
         initTableIfNeeded();
 
         const keyHash = calcHash(key);
@@ -244,25 +264,25 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
         p.hash = keyHash;
 
-        if (!p.deleted){
+        if (p.deleted){
+            p.entry.key = key;
+            p.entry.val = cast(V)val;
+        } else {
             Node* newNode = allocator.make!Node();
             newNode.key = key;
             newNode.val = cast(V)val;
 
             p.entry = newNode;
-        } else {
-            p.entry.key = key;
-            p.entry.val = cast(V)val;
         }
     }
 
-    private size_t calcHash(scope const K pkey) pure @nogc nothrow {
+    private size_t calcHash(scope const K pkey) pure {
         // highest bit is set to distinguish empty/deleted from filled buckets
         const hash = TKey.getHash(pkey);
         return mix(hash) | HASH_FILLED_MARK;
     }
 
-    void resize(size_t sz) @nogc nothrow {
+    void resize(size_t sz) {
         auto obuckets = buckets;
         allocHtable(sz);
 
@@ -284,21 +304,21 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         allocator.dispose(obuckets.ptr);
     }
 
-    void rehash() @nogc nothrow {
+    void rehash() {
         if (length)
             resize(nextpow2(INIT_DEN * length / INIT_NUM));
     }
 
-    void grow() @nogc nothrow {
+    void grow() {
         resize(length * SHRINK_DEN < GROW_FAC * dim * SHRINK_NUM ? dim : GROW_FAC * dim);
     }
 
-    void shrink() @nogc nothrow {
+    void shrink() {
         if (dim > INIT_NUM_BUCKETS)
             resize(dim / GROW_FAC);
     }
 
-    bool remove(scope const K key) @nogc nothrow {
+    bool remove(scope const K key) {
         if (!length)
             return false;
 
@@ -317,7 +337,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return false;
     }
 
-    V get(scope const K key) @nogc nothrow {
+    V get(scope const K key) {
         if(auto ret = key in this)
             return *ret;
         return V.init;
@@ -325,21 +345,21 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     alias opIndex = get;
 
-    void opIndexAssign(scope const V value, scope const K key) @nogc nothrow {
+    void opIndexAssign(scope const V value, scope const K key) {
         set(key, value);
     }
 
-    static if(isSomeString!K) {
-        @property auto opDispatch(K key)() {
+    static if(isSomeString!K) @property {
+        auto opDispatch(K key)() {
             return opIndex(key);
         }
 
-        @property auto opDispatch(K key)(scope const V value) {
+        auto opDispatch(K key)(scope const V value) {
             return opIndexAssign(value, key);
         }
     }
 
-    V* opBinaryRight(string op)(scope const K key) @nogc nothrow if (op == "in") {
+    V* opBinaryRight(string op : "in")(scope const K key) {
         if (!length)
             return null;
 
@@ -351,7 +371,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     /// returning slice must be deallocated like Allocator.dispose(keys);
     // use byKeyValue to avoid extra allocations
-    K[] keys() @nogc nothrow {
+    K[] keys() {
         K[] ks = allocator.makeArray!K(length);
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
@@ -365,7 +385,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
 
     /// returning slice must be deallocated like Allocator.dispose(values);
     // use byKeyValue to avoid extra allocations
-    V[] values() @nogc nothrow {
+    V[] values() {
         V[] vals = allocator.makeArray!V(length);
         size_t j;
         foreach (ref b; buckets[firstUsed .. $]){
@@ -377,7 +397,7 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return vals;
     }
 
-    void clear() @nogc nothrow { // WIP
+    void clear() { // WIP
         /+ not sure if this works with this port
         import core.stdc.string : memset;
         // clear all data, but don't change bucket array length
@@ -385,45 +405,37 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         +/
         // just loop over entire slice
         foreach(ref b; buckets)
-            if(b.entry !is null){
-                //core.stdc.stdlib.free(b.entry);
+            if(b.entry){
                 allocator.dispose(b.entry);
-                b.entry = null;
             }
         deleted = used = 0;
         firstUsed = cast(uint) dim;
         buckets[] = Bucket.init;
     }
 
-    void free() @nogc nothrow {
+    void free() {
         foreach(ref b; buckets)
-            if(b.entry !is null){
-                //core.stdc.stdlib.free(b.entry);
+            if(b.entry){
                 allocator.dispose(b.entry);
-                b.entry = null;
             }
 
-        //core.stdc.stdlib.free(buckets.ptr);
         allocator.dispose(buckets);
         deleted = used = 0;
         buckets = null;
     }
 
-    auto copy() @nogc nothrow {
-        auto new_buckets = allocator.makeArray!Bucket(buckets.length);
-        //cast(Bucket*)malloc(buckets.length * Bucket.sizeof);
-        memcpy(new_buckets.ptr, buckets.ptr, buckets.length * Bucket.sizeof);
-        typeof(this) newAA;
-        newAA.buckets = new_buckets[0..buckets.length];
-        newAA.firstUsed = firstUsed;
-        newAA.used = used;
-        newAA.deleted = deleted;
+    auto copy() {
+        auto newBuckets = allocator.makeArray!Bucket(buckets.length);
+        memcpy(newBuckets.ptr, buckets.ptr, buckets.length * Bucket.sizeof);
+        typeof(this) newAA = {
+            newBuckets, firstUsed, used, deleted
+        };
         return newAA;
     }
 
     // opApply will be deprecated. Use byKeyValue instead
-    int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) nothrow @nogc {
-        if (buckets is null || buckets.length == 0)
+    int opApply(int delegate(AAPair!(K, V)) @nogc nothrow dg) {
+        if (!buckets.length)
             return 0;
         int result = 0;
         foreach (ref b; buckets[firstUsed .. $]){
@@ -437,60 +449,29 @@ struct Bcaa(K, V, Allocator = Mallocator) {
         return 0;
     }
 
-    // for GC usages
-    // opApply will be deprecated. Use byKeyValue instead
-    int opApply(int delegate(AAPair!(K, V)) dg) {
-        if (buckets is null || buckets.length == 0)
-            return 0;
-        int result = 0;
-        foreach (ref b; buckets[firstUsed .. $]){
-            if (!b.filled)
-                continue;
-            result = dg(AAPair!(K, V)(&b.entry.key, &b.entry.val));
-            if (result) {
-                break;
-            }
-        }
-        return 0;
-    }
-
-    private enum RangeType{
-        KEYS,
-        VALUES,
-        BOTH
-    }
-
-    struct BCAARange(B, alias rangeType) {
-        B* bucks;
+    struct BCAARange(alias rangeType) {
+        typeof(buckets) bucks;
         size_t len;
         size_t current;
 
         nothrow @nogc:
 
-        bool empty(){
-            if (len == 0)
-                return true;
-            return false;
+        bool empty() const pure @safe {
+            return len == 0;
         }
 
         // front must be called first before popFront
         auto front(){
-            next();
-            static if(rangeType == RangeType.BOTH){
-                auto ret = Node((*bucks)[current].entry.key, (*bucks)[current].entry.val);
-            } else
-            static if(rangeType == RangeType.KEYS){
-                auto ret = (*bucks)[current].entry.key;
-            } else
-            static if(rangeType == RangeType.VALUES){
-                auto ret = (*bucks)[current].entry.val;
-            }
+            while(bucks[current].hash <= 0)
+                ++current;
 
-            return ret;
+            auto entry = bucks[current].entry;
+            mixin rangeType!entry;
+            return rangeType;
         }
 
         void popFront(){
-            foreach (i, ref b; (*bucks)[current .. $]){
+            foreach (ref b; bucks[current .. $]){
                 if (!b.empty){
                     --len;
                     ++current;
@@ -498,41 +479,22 @@ struct Bcaa(K, V, Allocator = Mallocator) {
                 }
             }
         }
-
-        private void next(){
-            while(!(*bucks)[current].filled || (*bucks)[current].empty){
-                current++;
-            }
-        }
     }
 
     // The following functions return an InputRange
-
-    auto byKeyValue() nothrow @nogc {
-        size_t current = firstUsed;
-        auto len = length;
-
-        typeof(buckets)* bucks = &buckets;
-
-        return BCAARange!(typeof(buckets), RangeType.BOTH)(bucks, len, current);
+    auto byKeyValue() {
+        auto rangeType(alias T) = T;
+        return BCAARange!rangeType(buckets, length, firstUsed);
     }
 
-    auto byKey() nothrow @nogc {
-        size_t current = firstUsed;
-        auto len = length;
-
-        typeof(buckets)* bucks = &buckets;
-
-        return BCAARange!(typeof(buckets), RangeType.KEYS)(bucks, len, current);
+    auto byKey() {
+        auto rangeType(alias T) = T.key;
+        return BCAARange!rangeType(buckets, length, firstUsed);
     }
 
-    auto byValue() nothrow @nogc {
-        size_t current = firstUsed;
-        auto len = length;
-
-        typeof(buckets)* bucks = &buckets;
-
-        return BCAARange!(typeof(buckets), RangeType.VALUES)(bucks, len, current);
+    auto byValue() {
+        auto rangeType(alias T) = T.val;
+        return BCAARange!rangeType(buckets, length, firstUsed);
     }
 }
 
@@ -567,7 +529,7 @@ unittest
     assert(aa.foo == "bar");
 }
 
-@nogc:
+nothrow @nogc:
 unittest {
     import core.stdc.stdio;
     import core.stdc.time;
