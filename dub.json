@@ -1,12 +1,9 @@
 {
-    "authors": [
-        "Ferhat Kurtulmuş"
-    ],
     "copyright": "Copyright © 2020, Ferhat Kurtulmuş",
     "description": "Simple associative array implementation for D (-betterC)",
     "license": "boost",
     "name": "bcaa",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "importPaths": ["source"],
     "sourcePaths": ["source"],
     "configurations": [
